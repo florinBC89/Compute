@@ -1,0 +1,67 @@
+# Local development stack (spec §54).
+#
+#   docker compose up
+#
+# brings up Postgres, Redis and the API, runs migrations, and prints a
+# project-scoped API key you can paste into COMPUTELAYER_API_KEY.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: computelayer
+      POSTGRES_PASSWORD: computelayer
+      POSTGRES_DB: computelayer
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U computelayer"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://computelayer:computelayer@postgres:5432/computelayer
+      REDIS_URL: redis://redis:6379/0
+      OBJECT_STORAGE_URL: file:///var/lib/computelayer/artifacts
+      BOOTSTRAP_WORKSPACE: local
+      BOOTSTRAP_PROJECT: research-agent
+      BOOTSTRAP_API_KEY: cl_test_local_development_key
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    volumes:
+      - artifacts:/var/lib/computelayer/artifacts
+    # alembic runs from /srv (where alembic.ini lives); everything after it must
+    # run from /srv/apps/api, which is where the `app` package actually is.
+    command: >
+      sh -c "cd /srv && alembic upgrade head &&
+             cd /srv/apps/api &&
+             python -m app.bootstrap &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  postgres_data:
+  artifacts:

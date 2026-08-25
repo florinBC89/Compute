@@ -1,0 +1,14 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+pydantic-settings>=2.3
+sqlalchemy[asyncio]>=2.0.30
+asyncpg>=0.29
+alembic>=1.13
+redis>=5.0
+httpx>=0.27
+python-dotenv>=1.0
+
+# The API imports computelayer.semantics so reuse rules live in exactly one
+# place. Installed from the monorepo:
+#   pip install -e ../../packages/python-sdk
