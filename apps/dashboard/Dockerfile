@@ -1,6 +1,6 @@
-# Next.js NEXT_PUBLIC_* vars are baked in at build time, so they arrive as
-# build args here, not just runtime environment -- set them at deploy time,
-# e.g. `docker build --build-arg NEXT_PUBLIC_COMPUTELAYER_API_URL=https://...`
+# COMPUTELAYER_* vars are plain runtime environment variables (see lib/api.ts)
+# -- read at request time in Server Components, so no Docker build-arg
+# plumbing is needed. Set them on the running container/service, not here.
 
 FROM node:20-slim AS deps
 WORKDIR /app
@@ -11,14 +11,6 @@ FROM node:20-slim AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-
-ARG NEXT_PUBLIC_COMPUTELAYER_API_URL
-ARG NEXT_PUBLIC_COMPUTELAYER_API_KEY
-ARG NEXT_PUBLIC_COMPUTELAYER_PROJECT
-ENV NEXT_PUBLIC_COMPUTELAYER_API_URL=$NEXT_PUBLIC_COMPUTELAYER_API_URL \
-    NEXT_PUBLIC_COMPUTELAYER_API_KEY=$NEXT_PUBLIC_COMPUTELAYER_API_KEY \
-    NEXT_PUBLIC_COMPUTELAYER_PROJECT=$NEXT_PUBLIC_COMPUTELAYER_PROJECT
-
 RUN npm run build
 
 FROM node:20-slim AS runner

@@ -1,9 +1,14 @@
 import { DEMO_RUNS, DEMO_RUN_GRAPHS, demoMetrics } from "./fixtures";
 import type { ProjectMetrics, RunGraph, RunListItem, RunSummary } from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_COMPUTELAYER_API_URL;
-const API_KEY = process.env.NEXT_PUBLIC_COMPUTELAYER_API_KEY;
-const PROJECT = process.env.NEXT_PUBLIC_COMPUTELAYER_PROJECT ?? "research-agent";
+// Deliberately not NEXT_PUBLIC_-prefixed: every call site is a Server
+// Component (see `export const dynamic = "force-dynamic"` on each page), so
+// these are read from process.env at request time on the server, never
+// bundled for the browser. That means they're ordinary runtime environment
+// variables -- no Docker build-arg plumbing required to change them.
+const API_URL = process.env.COMPUTELAYER_API_URL;
+const API_KEY = process.env.COMPUTELAYER_API_KEY;
+const PROJECT = process.env.COMPUTELAYER_PROJECT ?? "research-agent";
 
 // True whenever no live API is configured -- lets the dashboard render a
 // realistic preview (shaped exactly like the research-agent benchmark) with

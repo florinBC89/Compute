@@ -31,7 +31,7 @@ at a real API:
 
 ```bash
 cp .env.example .env.local
-# then edit NEXT_PUBLIC_COMPUTELAYER_API_URL / _API_KEY / _PROJECT
+# then edit COMPUTELAYER_API_URL / _API_KEY / _PROJECT
 ```
 
 The API is CORS-enabled for `http://localhost:3000` (`CORS_ORIGINS` in the
