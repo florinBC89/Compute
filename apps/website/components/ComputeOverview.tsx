@@ -35,7 +35,7 @@ const pct = (v: number, of: number) => `${(v / of) * 100}%`;
 
 export default function ComputeOverview() {
   return (
-    <section className="mx-auto max-w-[1000px] px-6 py-24 sm:px-10">
+    <section className="mx-auto max-w-[1200px] px-6 py-24 sm:px-10">
       <h2 className="text-center font-serif text-[22px] font-semibold text-ink">
         AI Compute Overview
       </h2>
@@ -104,9 +104,21 @@ export default function ComputeOverview() {
           Your Bill Has Two Parts
         </p>
 
-        <div className="mt-4 flex w-full max-w-[420px] justify-between px-2 text-[12.5px] font-medium">
-          <span className="text-ink-secondary">Compute you need</span>
-          <span className="text-good">Compute you didn&apos;t need to repeat</span>
+        {/* Aligned to sit right under each leg of the arc above: black leg bottom-center
+            is at x=109 in frame coords, green leg bottom-center is at x=636. */}
+        <div className="relative mt-4 h-12 w-full" style={{ maxWidth: FRAME_W }}>
+          <span
+            className="absolute -translate-x-1/2 whitespace-nowrap text-[12.5px] font-medium text-ink-secondary"
+            style={{ left: pct(109, FRAME_W) }}
+          >
+            Compute you need
+          </span>
+          <span
+            className="absolute -translate-x-1/2 text-center text-[12.5px] font-medium text-good"
+            style={{ left: pct(636, FRAME_W), width: pct(190, FRAME_W) }}
+          >
+            Compute you didn&apos;t need to repeat
+          </span>
         </div>
       </div>
     </section>
