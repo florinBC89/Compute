@@ -31,6 +31,18 @@ body {
   );
 }
 
+/* Same gradient as .glow-hero, but on a filled #FFF5F1 base instead of fading to
+   transparent -- used where the card should read as a tinted rectangle. */
+.glow-hero-filled {
+  background-color: #fff5f1;
+  background-image: radial-gradient(
+    60% 60% at 50% 0%,
+    rgba(255, 148, 79, 0.55) 0%,
+    rgba(255, 148, 79, 0.28) 35%,
+    rgba(255, 148, 79, 0) 70%
+  );
+}
+
 .glow-orb {
   background: radial-gradient(
     circle at 50% 50%,
