@@ -59,3 +59,20 @@ export async function getProjectMetrics(period = "30d"): Promise<ProjectMetrics>
     `/projects/${PROJECT}/metrics?period=${period}`
   );
 }
+
+// The "How Accurate thinks" example on Overview: a real run that reused some
+// computations and recomputed others, so the concept is shown with an actual
+// graph rather than a mockup. Returns null (never a fabricated stand-in) when
+// no such run exists yet.
+export async function getPartialReuseExample(): Promise<{
+  runId: string;
+  graph: RunGraph;
+} | null> {
+  if (isDemoMode) {
+    return { runId: "run-e5f6a7b8-news1", graph: DEMO_RUN_GRAPHS["run-e5f6a7b8-news1"] };
+  }
+  const runs = await listRuns(50);
+  const example = runs.find((r) => r.hits > 0 && r.stale > 0);
+  if (!example) return null;
+  return { runId: example.id, graph: await getRunGraph(example.id) };
+}

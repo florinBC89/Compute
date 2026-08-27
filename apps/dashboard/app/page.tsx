@@ -2,7 +2,8 @@ import TopNav from "@/components/TopNav";
 import StatCard from "@/components/StatCard";
 import GaugeRing from "@/components/GaugeRing";
 import BaselineTable from "@/components/BaselineTable";
-import { getProjectMetrics, isDemoMode } from "@/lib/api";
+import HowItWorks from "@/components/HowItWorks";
+import { getPartialReuseExample, getProjectMetrics, isDemoMode } from "@/lib/api";
 import { tokenEconomics, costEconomics } from "@/lib/compute";
 import { formatCompact, formatUsd } from "@/lib/format";
 
@@ -12,7 +13,10 @@ export const dynamic = "force-dynamic";
 // is going, and how much Accurate prevented. Compute Avoided is the hero KPI
 // -- not Reuse Rate, which measures computation *count*, not the economics.
 export default async function OverviewPage() {
-  const metrics = await getProjectMetrics("30d");
+  const [metrics, example] = await Promise.all([
+    getProjectMetrics("30d"),
+    getPartialReuseExample(),
+  ]);
   const tokens = tokenEconomics(metrics.tokens_consumed, metrics.tokens_avoided);
   const cost = costEconomics(metrics.cost_usd, metrics.saved_usd);
 
@@ -51,6 +55,8 @@ export default async function OverviewPage() {
           ]}
         />
       </div>
+
+      <HowItWorks example={example} />
     </div>
   );
 }
