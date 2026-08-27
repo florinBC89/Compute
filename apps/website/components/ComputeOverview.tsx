@@ -40,23 +40,25 @@ export default function ComputeOverview() {
         AI Compute Overview
       </h2>
 
-      <div className="mt-8 grid grid-cols-2 overflow-hidden rounded-card sm:grid-cols-5">
+      <div className="mt-8 grid grid-cols-2 overflow-hidden rounded-card sm:grid-cols-5 sm:gap-3 sm:overflow-visible sm:rounded-none">
         {STATS.map((s) => (
           <div
             key={s.label}
-            className={`flex flex-col items-center justify-center gap-1.5 px-4 py-9 ${TONE_STYLES[s.tone]}`}
+            className={`flex flex-col items-center justify-center gap-1.5 px-4 py-9 sm:gap-2 sm:rounded-2xl sm:px-6 sm:py-16 ${TONE_STYLES[s.tone]}`}
           >
-            <span className={`font-serif text-[26px] font-semibold ${VALUE_TONE[s.tone]}`}>
+            <span className={`font-serif text-[26px] font-semibold sm:text-[42px] ${VALUE_TONE[s.tone]}`}>
               {s.value}
             </span>
-            <span className={`text-[11.5px] font-semibold uppercase tracking-wide ${LABEL_TONE[s.tone]}`}>
+            <span
+              className={`text-[11.5px] font-semibold uppercase tracking-wide sm:text-[14px] sm:font-medium sm:normal-case sm:tracking-normal ${LABEL_TONE[s.tone]}`}
+            >
               {s.label}
             </span>
           </div>
         ))}
       </div>
 
-      <div className="glow-hero relative mt-4 flex flex-col items-center overflow-hidden rounded-card px-6 py-14">
+      <div className="glow-hero relative mt-4 flex flex-col items-center overflow-hidden rounded-card px-6 py-14 sm:border sm:border-border">
         <div
           className="relative mx-auto w-full"
           style={{ maxWidth: FRAME_W, aspectRatio: `${FRAME_W} / ${FRAME_H}` }}
@@ -88,9 +90,17 @@ export default function ComputeOverview() {
           >
             $200
           </span>
+
+          {/* Desktop only: heading overlaid in the arc's gap, matching the reference. Mobile keeps it below the chart (see the sm:hidden paragraph further down). */}
+          <p
+            className="absolute hidden -translate-x-1/2 text-center font-serif text-[18px] font-semibold leading-tight text-ink sm:block"
+            style={{ left: pct(385, FRAME_W), top: pct(195, FRAME_H), width: pct(200, FRAME_W) }}
+          >
+            Your Bill Has Two Parts
+          </p>
         </div>
 
-        <p className="mt-2 text-center font-serif text-[20px] font-semibold text-ink">
+        <p className="mt-2 text-center font-serif text-[20px] font-semibold text-ink sm:hidden">
           Your Bill Has Two Parts
         </p>
 
