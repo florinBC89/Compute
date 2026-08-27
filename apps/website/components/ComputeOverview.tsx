@@ -58,7 +58,7 @@ export default function ComputeOverview() {
         ))}
       </div>
 
-      <div className="glow-hero relative mt-4 flex flex-col items-center overflow-hidden rounded-card px-6 py-14 sm:border sm:border-border">
+      <div className="glow-hero-filled relative mt-4 flex flex-col items-center overflow-hidden rounded-card px-6 py-14 sm:border sm:border-border">
         <div
           className="relative mx-auto w-full"
           style={{ maxWidth: FRAME_W, aspectRatio: `${FRAME_W} / ${FRAME_H}` }}
