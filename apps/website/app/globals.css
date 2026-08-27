@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --page: #ffffff;
+  --surface: #ffffff;
+  --ink: #14120f;
+  --ink-secondary: #5c584f;
+  --ink-muted: #948f83;
+  --border: rgba(20, 18, 15, 0.08);
+
+  --accent: #f2612f;
+  --accent-soft: #fde9de;
+  --good: #22c58a;
+  --dark: #131110;
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+}
+
+.glow-hero {
+  background: radial-gradient(
+    60% 60% at 50% 0%,
+    rgba(255, 148, 79, 0.55) 0%,
+    rgba(255, 148, 79, 0.28) 35%,
+    rgba(255, 148, 79, 0) 70%
+  );
+}
+
+.glow-orb {
+  background: radial-gradient(
+    circle at 50% 50%,
+    #ff7a3d 0%,
+    #ff9d5c 35%,
+    rgba(255, 157, 92, 0.4) 65%,
+    rgba(255, 157, 92, 0) 100%
+  );
+}
+
+.glow-footer {
+  background: radial-gradient(
+    60% 100% at 50% 100%,
+    rgba(255, 176, 112, 0.55) 0%,
+    rgba(255, 176, 112, 0.15) 45%,
+    rgba(255, 176, 112, 0) 75%
+  );
+}
