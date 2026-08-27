@@ -18,26 +18,9 @@ const mono = JetBrains_Mono({
   variable: "--font-mono",
 });
 
-const DESCRIPTION = "Your AI doesn't need to recompute everything.";
-
 export const metadata: Metadata = {
-  metadataBase: new URL("https://www.accurate-ai.app"),
   title: "Accurate",
-  description: DESCRIPTION,
-  openGraph: {
-    title: "Accurate",
-    description: DESCRIPTION,
-    url: "https://www.accurate-ai.app",
-    siteName: "Accurate",
-    type: "website",
-    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "Accurate" }],
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Accurate",
-    description: DESCRIPTION,
-    images: ["/og-image.png"],
-  },
+  description: "Your AI doesn't need to recompute everything.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
