@@ -8,7 +8,7 @@ function ArrowIcon() {
       height="14"
       viewBox="0 0 20 14"
       fill="none"
-      className="shrink-0 rotate-90 text-ink-muted sm:rotate-0"
+      className="shrink-0 rotate-90 text-accent sm:rotate-0"
     >
       <path
         d="M1 7h17M12 1l6 6-6 6"
