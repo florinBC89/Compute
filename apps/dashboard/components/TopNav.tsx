@@ -1,7 +1,19 @@
-import Link from "next/link";
-import { isDemoMode } from "@/lib/api";
+"use client";
 
-export default function TopNav() {
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+
+const NAV_LINKS = [
+  { href: "/", label: "Overview" },
+  { href: "/runs", label: "Runs" },
+];
+
+// demoMode is passed in rather than imported from lib/api: this is a client
+// component, and importing that module here would pull its server-only env
+// var reads into the browser bundle, where they always read as undefined.
+export default function TopNav({ demoMode = false }: { demoMode?: boolean }) {
+  const pathname = usePathname();
+
   return (
     <header className="flex items-center justify-between">
       <div className="flex items-center gap-3">
@@ -15,31 +27,33 @@ export default function TopNav() {
           </svg>
         </button>
         <div className="flex h-11 w-11 items-center justify-center rounded-full bg-surface-raised text-[13px] font-bold text-white">
-          CL
+          A
         </div>
         <div className="leading-tight">
-          <div className="text-[15px] font-semibold text-ink">ComputeLayer</div>
-          <div className="text-[12px] text-ink-muted">research-agent</div>
+          <div className="text-[15px] font-semibold text-ink">Accurate</div>
+          <div className="text-[12px] text-ink-muted">research-agent / production</div>
         </div>
       </div>
 
       <nav className="hidden items-center gap-1 rounded-pill border border-border bg-surface p-1 shadow-card sm:flex">
-        <Link
-          href="/"
-          className="rounded-pill px-4 py-2 text-[13px] font-medium text-ink-secondary hover:bg-page hover:text-ink"
-        >
-          Runs
-        </Link>
-        <Link
-          href="/metrics"
-          className="rounded-pill px-4 py-2 text-[13px] font-medium text-ink-secondary hover:bg-page hover:text-ink"
-        >
-          Project metrics
-        </Link>
+        {NAV_LINKS.map((link) => {
+          const active = link.href === "/" ? pathname === "/" : pathname?.startsWith(link.href);
+          return (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`rounded-pill px-4 py-2 text-[13px] font-medium transition-colors ${
+                active ? "bg-surface-raised text-white" : "text-ink-secondary hover:bg-page hover:text-ink"
+              }`}
+            >
+              {link.label}
+            </Link>
+          );
+        })}
       </nav>
 
       <div className="flex items-center gap-3">
-        {isDemoMode ? (
+        {demoMode ? (
           <span className="hidden rounded-pill border border-accent/30 bg-accent-soft px-3 py-1.5 text-[11px] font-semibold text-accent md:inline-block">
             Demo data — no API connected
           </span>

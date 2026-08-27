@@ -1,9 +1,11 @@
 import type { CacheStatus } from "@/lib/types";
 
+// Product language (per the Accurate spec): "Reused / Computed / Changed",
+// never "Cache Hit / Cache Miss" -- HIT/MISS/STALE are the wire format only.
 const STYLES: Record<CacheStatus, { bg: string; fg: string; icon: string; label: string }> = {
-  HIT: { bg: "bg-good/10", fg: "text-good", icon: "✓", label: "HIT" },
-  MISS: { bg: "bg-info/10", fg: "text-info", icon: "+", label: "MISS" },
-  STALE: { bg: "bg-warning/15", fg: "text-warning", icon: "↻", label: "STALE" },
+  HIT: { bg: "bg-good/10", fg: "text-good", icon: "✓", label: "REUSED" },
+  MISS: { bg: "bg-info/10", fg: "text-info", icon: "+", label: "COMPUTED" },
+  STALE: { bg: "bg-warning/15", fg: "text-warning", icon: "↻", label: "CHANGED" },
   FORCED: { bg: "bg-violet/10", fg: "text-violet", icon: "↳", label: "FORCED" },
   FAILED: { bg: "bg-critical/10", fg: "text-critical", icon: "✕", label: "FAILED" },
 };

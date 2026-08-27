@@ -11,17 +11,18 @@ const NODE_DEFS: Array<{
   inTok: number;
   outTok: number;
   latency: number;
+  isLlmCall: boolean;
 }> = [
-  { id: "company_profile", name: "company_profile", cost: 0, inTok: 0, outTok: 0, latency: 420 },
-  { id: "financials", name: "financials", cost: 0, inTok: 0, outTok: 0, latency: 380 },
-  { id: "competitors", name: "competitors", cost: 0, inTok: 0, outTok: 0, latency: 310 },
-  { id: "news", name: "news", cost: 0, inTok: 0, outTok: 0, latency: 290 },
-  { id: "overview", name: "overview", cost: 0.14, inTok: 2400, outTok: 480, latency: 3200 },
-  { id: "financial_analysis", name: "financial_analysis", cost: 0.31, inTok: 5200, outTok: 820, latency: 5100 },
-  { id: "competitive_analysis", name: "competitive_analysis", cost: 0.22, inTok: 3600, outTok: 610, latency: 4200 },
-  { id: "news_analysis", name: "news_analysis", cost: 0.18, inTok: 3100, outTok: 540, latency: 3600 },
-  { id: "valuation", name: "valuation", cost: 0.27, inTok: 4400, outTok: 700, latency: 4700 },
-  { id: "final_report", name: "final_report", cost: 0.35, inTok: 6800, outTok: 1100, latency: 6100 },
+  { id: "company_profile", name: "company_profile", cost: 0, inTok: 0, outTok: 0, latency: 420, isLlmCall: false },
+  { id: "financials", name: "financials", cost: 0, inTok: 0, outTok: 0, latency: 380, isLlmCall: false },
+  { id: "competitors", name: "competitors", cost: 0, inTok: 0, outTok: 0, latency: 310, isLlmCall: false },
+  { id: "news", name: "news", cost: 0, inTok: 0, outTok: 0, latency: 290, isLlmCall: false },
+  { id: "overview", name: "overview", cost: 0.14, inTok: 2400, outTok: 480, latency: 3200, isLlmCall: true },
+  { id: "financial_analysis", name: "financial_analysis", cost: 0.31, inTok: 5200, outTok: 820, latency: 5100, isLlmCall: true },
+  { id: "competitive_analysis", name: "competitive_analysis", cost: 0.22, inTok: 3600, outTok: 610, latency: 4200, isLlmCall: true },
+  { id: "news_analysis", name: "news_analysis", cost: 0.18, inTok: 3100, outTok: 540, latency: 3600, isLlmCall: true },
+  { id: "valuation", name: "valuation", cost: 0.27, inTok: 4400, outTok: 700, latency: 4700, isLlmCall: true },
+  { id: "final_report", name: "final_report", cost: 0.35, inTok: 6800, outTok: 1100, latency: 6100, isLlmCall: true },
 ];
 
 const EDGE_DEFS: GraphEdge[] = [
@@ -52,6 +53,10 @@ function buildGraph(statusByNode: Record<string, GraphNode["status"]>): RunGraph
       latency_ms: isReused ? Math.round(def.latency * 0.02) : def.latency,
       input_tokens: isReused ? 0 : def.inTok,
       output_tokens: isReused ? 0 : def.outTok,
+      previous_cost_usd: isReused ? def.cost : null,
+      previous_input_tokens: isReused ? def.inTok : null,
+      previous_output_tokens: isReused ? def.outTok : null,
+      previous_latency_ms: isReused ? def.latency : null,
     };
   });
   return { nodes, edges: EDGE_DEFS };
@@ -92,20 +97,28 @@ export const DEMO_GRAPH_UPSTREAM_CHURN: RunGraph = buildGraph({
   final_report: "HIT",
 });
 
+const LLM_NODE_IDS = new Set(NODE_DEFS.filter((d) => d.isLlmCall).map((d) => d.id));
+
 function summarize(graph: RunGraph) {
   const counts = { HIT: 0, MISS: 0, STALE: 0, FORCED: 0, FAILED: 0 };
   let cost = 0;
   let saved = 0;
   let inTok = 0;
   let outTok = 0;
+  let tokensAvoided = 0;
+  let llmCallsAvoided = 0;
   for (const node of graph.nodes) {
     counts[node.status] += 1;
     cost += node.cost_usd;
     saved += node.saved_usd;
     inTok += node.input_tokens;
     outTok += node.output_tokens;
+    if (node.status === "HIT") {
+      tokensAvoided += (node.previous_input_tokens ?? 0) + (node.previous_output_tokens ?? 0);
+      if (LLM_NODE_IDS.has(node.id)) llmCallsAvoided += 1;
+    }
   }
-  return { counts, cost, saved, inTok, outTok };
+  return { counts, cost, saved, inTok, outTok, tokensAvoided, llmCallsAvoided };
 }
 
 function runListItem(
@@ -114,7 +127,7 @@ function runListItem(
   graph: RunGraph,
   status: string
 ): RunListItem {
-  const { counts, cost, saved, inTok, outTok } = summarize(graph);
+  const { counts, cost, saved, inTok, outTok, tokensAvoided, llmCallsAvoided } = summarize(graph);
   const started = new Date(Date.now() - hoursAgo * 3600_000);
   const finished = new Date(started.getTime() + 22_000);
   return {
@@ -130,6 +143,8 @@ function runListItem(
     saved_usd: Number(saved.toFixed(4)),
     input_tokens: inTok,
     output_tokens: outTok,
+    tokens_avoided: tokensAvoided,
+    llm_calls_avoided: llmCallsAvoided,
     started_at: started.toISOString(),
     finished_at: finished.toISOString(),
   };
@@ -162,7 +177,8 @@ export function demoMetrics(): ProjectMetrics {
   const saved = DEMO_RUNS.reduce((sum, r) => sum + r.saved_usd, 0);
   const inTok = DEMO_RUNS.reduce((sum, r) => sum + r.input_tokens, 0);
   const outTok = DEMO_RUNS.reduce((sum, r) => sum + r.output_tokens, 0);
-  const avoidedTokensPerHit = 3400; // rough average of the LLM-step token costs above
+  const tokensAvoided = DEMO_RUNS.reduce((sum, r) => sum + r.tokens_avoided, 0);
+  const llmCallsAvoided = DEMO_RUNS.reduce((sum, r) => sum + r.llm_calls_avoided, 0);
   return {
     period: "7d",
     runs: DEMO_RUNS.length,
@@ -171,7 +187,7 @@ export function demoMetrics(): ProjectMetrics {
     cost_usd: Number(cost.toFixed(4)),
     saved_usd: Number(saved.toFixed(4)),
     tokens_consumed: inTok + outTok,
-    tokens_avoided: totalHits * avoidedTokensPerHit,
-    llm_calls_avoided: Math.round(totalHits * 0.6),
+    tokens_avoided: tokensAvoided,
+    llm_calls_avoided: llmCallsAvoided,
   };
 }

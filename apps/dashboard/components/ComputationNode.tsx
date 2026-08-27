@@ -3,14 +3,27 @@ import { formatCompact, formatUsd } from "@/lib/format";
 import StatusBadge from "./StatusBadge";
 
 export const NODE_WIDTH = 208;
-export const NODE_HEIGHT = 116;
+export const NODE_HEIGHT = 132;
 
-export default function ComputationNode({ node }: { node: GraphNode }) {
+interface ComputationNodeProps {
+  node: GraphNode;
+  onClick?: () => void;
+}
+
+export default function ComputationNode({ node, onClick }: ComputationNodeProps) {
   const totalTokens = node.input_tokens + node.output_tokens;
   return (
     <div
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (onClick && (e.key === "Enter" || e.key === " ")) onClick();
+      }}
       style={{ width: NODE_WIDTH, height: NODE_HEIGHT }}
-      className="flex flex-col justify-between rounded-2xl border border-border bg-surface p-3.5 shadow-card"
+      className={`flex flex-col justify-between rounded-2xl border border-border bg-surface p-3.5 shadow-card ${
+        onClick ? "cursor-pointer transition-shadow hover:shadow-[0_0_0_2px_var(--accent)]" : ""
+      }`}
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-[12.5px] font-semibold leading-tight text-ink">{node.name}</span>
@@ -28,6 +41,9 @@ export default function ComputationNode({ node }: { node: GraphNode }) {
         <span className="text-ink-muted">Tokens</span>
         <span className="tabular text-right text-ink">{formatCompact(totalTokens)}</span>
       </div>
+      {onClick ? (
+        <div className="text-right text-[10.5px] font-medium text-accent">Why? →</div>
+      ) : null}
     </div>
   );
 }

@@ -12,6 +12,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
@@ -80,15 +81,34 @@ async def list_runs(
         )
     ).all()
 
+    source = aliased(Computation)
+    avoided = (
+        await session.execute(
+            select(
+                Computation.run_id,
+                func.coalesce(
+                    func.sum(source.input_tokens + source.output_tokens), 0
+                ),
+                func.count(),
+            )
+            .select_from(Computation)
+            .join(source, Computation.reused_from == source.id)
+            .where(Computation.run_id.in_(run_ids), Computation.cache_status == "HIT")
+            .group_by(Computation.run_id)
+        )
+    ).all()
+
     status_counts: dict[uuid.UUID, dict[str, int]] = {run_id: {} for run_id in run_ids}
     for run_id, cache_status, count in counts:
         status_counts[run_id][cache_status] = int(count)
     run_totals = {row[0]: row[1:] for row in sums}
+    run_avoided = {row[0]: (row[1], row[2]) for row in avoided}
 
     items = []
     for run in runs:
         by_status = status_counts[run.id]
         cost, saved, in_tok, out_tok = run_totals.get(run.id, (0, 0, 0, 0))
+        tokens_avoided, llm_calls_avoided = run_avoided.get(run.id, (0, 0))
         items.append(
             RunListItem(
                 id=str(run.id),
@@ -103,6 +123,8 @@ async def list_runs(
                 saved_usd=float(saved),
                 input_tokens=int(in_tok),
                 output_tokens=int(out_tok),
+                tokens_avoided=int(tokens_avoided),
+                llm_calls_avoided=int(llm_calls_avoided),
                 started_at=run.started_at.isoformat(),
                 finished_at=run.finished_at.isoformat() if run.finished_at else None,
             )
@@ -187,20 +209,39 @@ async def get_run_graph(
         )
     ).scalars().all()
 
+    # The real "previous execution" numbers for the Why? panel (HIT nodes
+    # only) -- not estimated from this run's own (zeroed) cost/tokens.
+    reused_from_ids = {row.reused_from for row in rows if row.reused_from}
+    sources_by_id: dict[uuid.UUID, Computation] = {}
+    if reused_from_ids:
+        source_rows = (
+            await session.execute(
+                select(Computation).where(Computation.id.in_(reused_from_ids))
+            )
+        ).scalars().all()
+        sources_by_id = {row.id: row for row in source_rows}
+
+    def _node(row: Computation) -> dict:
+        source = sources_by_id.get(row.reused_from) if row.reused_from else None
+        return {
+            "id": str(row.id),
+            "name": row.name,
+            "status": row.cache_status,
+            "cost_usd": float(row.cost_usd or 0),
+            "saved_usd": float(row.saved_usd or 0),
+            "latency_ms": row.latency_ms,
+            "input_tokens": int(row.input_tokens or 0),
+            "output_tokens": int(row.output_tokens or 0),
+            "previous_cost_usd": float(source.cost_usd or 0) if source else None,
+            "previous_input_tokens": int(source.input_tokens or 0) if source else None,
+            "previous_output_tokens": int(source.output_tokens or 0)
+            if source
+            else None,
+            "previous_latency_ms": source.latency_ms if source else None,
+        }
+
     return RunGraph(
-        nodes=[
-            {
-                "id": str(row.id),
-                "name": row.name,
-                "status": row.cache_status,
-                "cost_usd": float(row.cost_usd or 0),
-                "saved_usd": float(row.saved_usd or 0),
-                "latency_ms": row.latency_ms,
-                "input_tokens": int(row.input_tokens or 0),
-                "output_tokens": int(row.output_tokens or 0),
-            }
-            for row in rows
-        ],
+        nodes=[_node(row) for row in rows],
         edges=[
             {
                 "from": str(edge.source_computation_id),
@@ -243,6 +284,32 @@ async def _totals(session: AsyncSession, run_id: uuid.UUID) -> dict:
         )
     ).first()
 
+    # Same join-on-reused_from pattern as the project metrics endpoint: what
+    # each HIT would have cost in tokens/LLM-calls, counted once per reuse.
+    source = aliased(Computation)
+    tokens_avoided = (
+        await session.execute(
+            select(
+                func.coalesce(func.sum(source.input_tokens + source.output_tokens), 0)
+            )
+            .select_from(Computation)
+            .join(source, Computation.reused_from == source.id)
+            .where(Computation.run_id == run_id, Computation.cache_status == "HIT")
+        )
+    ).scalar_one()
+    llm_calls_avoided = (
+        await session.execute(
+            select(func.count())
+            .select_from(Computation)
+            .join(source, Computation.reused_from == source.id)
+            .where(
+                Computation.run_id == run_id,
+                Computation.cache_status == "HIT",
+                source.model.is_not(None),
+            )
+        )
+    ).scalar_one()
+
     return {
         "computations": sum(int(value) for value in counts.values()),
         "hits": int(counts.get("HIT", 0)),
@@ -253,4 +320,6 @@ async def _totals(session: AsyncSession, run_id: uuid.UUID) -> dict:
         "saved_usd": float(sums[1]),
         "input_tokens": int(sums[2]),
         "output_tokens": int(sums[3]),
+        "tokens_avoided": int(tokens_avoided or 0),
+        "llm_calls_avoided": int(llm_calls_avoided or 0),
     }

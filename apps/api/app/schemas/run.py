@@ -32,6 +32,8 @@ class RunSummary(BaseModel):
     saved_usd: float
     input_tokens: int
     output_tokens: int
+    tokens_avoided: int = 0
+    llm_calls_avoided: int = 0
 
 
 class RunListItem(RunSummary):
@@ -53,6 +55,12 @@ class GraphNode(BaseModel):
     latency_ms: int | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    #: Stats from the computation this one reused (HIT only) -- the real
+    #: "previous execution" numbers for the Why? panel, not estimates.
+    previous_cost_usd: float | None = None
+    previous_input_tokens: int | None = None
+    previous_output_tokens: int | None = None
+    previous_latency_ms: int | None = None
 
 
 class GraphEdge(BaseModel):

@@ -1,5 +1,9 @@
-import type { RunGraph as RunGraphData } from "@/lib/types";
+"use client";
+
+import { useState } from "react";
+import type { GraphNode, RunGraph as RunGraphData } from "@/lib/types";
 import ComputationNode, { NODE_HEIGHT, NODE_WIDTH } from "./ComputationNode";
+import WhyDrawer from "./WhyDrawer";
 
 const COL_GAP = 56;
 const ROW_GAP = 18;
@@ -31,6 +35,7 @@ function layerOf(nodes: RunGraphData["nodes"], edges: RunGraphData["edges"]): Ma
 }
 
 export default function RunGraph({ graph }: { graph: RunGraphData }) {
+  const [selected, setSelected] = useState<GraphNode | null>(null);
   const layers = layerOf(graph.nodes, graph.edges);
   const byLayer = new Map<number, string[]>();
   for (const node of graph.nodes) {
@@ -92,13 +97,15 @@ export default function RunGraph({ graph }: { graph: RunGraphData }) {
         {graph.nodes.map((node) => {
           const pos = position.get(node.id);
           if (!pos) return null;
+          const fullNode = nodeById.get(node.id)!;
           return (
             <div key={node.id} className="absolute" style={{ left: pos.x, top: pos.y }}>
-              <ComputationNode node={nodeById.get(node.id)!} />
+              <ComputationNode node={fullNode} onClick={() => setSelected(fullNode)} />
             </div>
           );
         })}
       </div>
+      {selected ? <WhyDrawer node={selected} onClose={() => setSelected(null)} /> : null}
     </div>
   );
 }

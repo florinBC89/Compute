@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ComputeLayer",
-  description: "Reuse, cost and savings for every agent run.",
+  title: "Accurate",
+  description: "Know exactly what your AI costs — and what Accurate prevented.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
