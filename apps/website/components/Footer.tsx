@@ -48,7 +48,7 @@ const SOCIAL_ICONS = [
 export default function Footer() {
   return (
     <footer className="relative overflow-hidden pt-20">
-      <div className="mx-auto grid max-w-[1000px] grid-cols-2 gap-8 px-6 sm:grid-cols-5 sm:px-10">
+      <div className="mx-auto grid max-w-[1000px] grid-cols-2 gap-8 px-6 sm:grid-cols-3 sm:px-10">
         {COLUMNS.map((col) => (
           <div key={col.title}>
             <h3 className="text-[12.5px] font-semibold text-accent">{col.title}</h3>
@@ -85,10 +85,10 @@ export default function Footer() {
       </div>
 
       <div className="glow-footer pointer-events-none absolute inset-x-0 bottom-0 h-[280px]" />
-      <div className="relative mx-auto max-w-[1000px] overflow-hidden px-6 sm:px-10">
-        <div className="flex translate-y-[28%] items-center gap-3">
-          <span className="mb-6 h-4 w-4 shrink-0 rounded-full bg-accent sm:h-6 sm:w-6" />
-          <span className="select-none whitespace-nowrap font-serif text-[120px] font-semibold leading-none tracking-tight text-ink sm:text-[220px]">
+      <div className="relative mx-auto max-w-[1000px] overflow-hidden px-6 [container-type:inline-size] sm:px-10">
+        <div className="flex translate-y-[15%] items-end gap-[1.5cqw]">
+          <span className="mb-[8.3cqw] h-[3.05cqw] w-[3.05cqw] shrink-0 rounded-full bg-accent" />
+          <span className="select-none whitespace-nowrap font-serif font-semibold leading-none tracking-tight text-ink" style={{ fontSize: "20.7cqw" }}>
             Accurate
           </span>
         </div>
