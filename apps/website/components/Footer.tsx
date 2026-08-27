@@ -1,15 +1,6 @@
+import { DribbbleIcon, FacebookIcon, GitHubIcon, LinkedInIcon, PeaceHandIcon, TwitterIcon } from "./SocialIcons";
+
 const COLUMNS: Array<{ title: string; links: Array<{ label: string; badge?: string }> }> = [
-  {
-    title: "Product",
-    links: [
-      { label: "Overview" },
-      { label: "Features" },
-      { label: "Solutions", badge: "New" },
-      { label: "Tutorials" },
-      { label: "Pricing" },
-      { label: "Releases" },
-    ],
-  },
   {
     title: "Company",
     links: [
@@ -33,17 +24,6 @@ const COLUMNS: Array<{ title: string; links: Array<{ label: string; badge?: stri
     ],
   },
   {
-    title: "Social",
-    links: [
-      { label: "Twitter" },
-      { label: "LinkedIn" },
-      { label: "Facebook" },
-      { label: "GitHub" },
-      { label: "AngelList" },
-      { label: "Dribbble" },
-    ],
-  },
-  {
     title: "Legal",
     links: [
       { label: "Terms" },
@@ -56,7 +36,14 @@ const COLUMNS: Array<{ title: string; links: Array<{ label: string; badge?: stri
   },
 ];
 
-const SOCIAL_ICONS = ["𝕏", "in", "f", "gh", "d"];
+const SOCIAL_ICONS = [
+  { label: "Twitter", icon: <TwitterIcon /> },
+  { label: "LinkedIn", icon: <LinkedInIcon /> },
+  { label: "Facebook", icon: <FacebookIcon /> },
+  { label: "GitHub", icon: <GitHubIcon /> },
+  { label: "AngelList", icon: <PeaceHandIcon /> },
+  { label: "Dribbble", icon: <DribbbleIcon /> },
+];
 
 export default function Footer() {
   return (
@@ -88,20 +75,20 @@ export default function Footer() {
 
       <div className="relative z-10 mx-auto mt-16 flex max-w-[1000px] items-center justify-between border-t border-border px-6 py-6 sm:px-10">
         <span className="text-[12.5px] text-ink-muted">© 2026 Accurate. All rights reserved.</span>
-        <div className="flex items-center gap-4 text-[13px] text-ink-secondary">
-          {SOCIAL_ICONS.map((icon) => (
-            <a key={icon} href="#" className="hover:text-ink">
-              {icon}
+        <div className="flex items-center gap-4 text-ink-secondary">
+          {SOCIAL_ICONS.map((social) => (
+            <a key={social.label} href="#" aria-label={social.label} className="hover:text-ink">
+              {social.icon}
             </a>
           ))}
         </div>
       </div>
 
       <div className="glow-footer pointer-events-none absolute inset-x-0 bottom-0 h-[280px]" />
-      <div className="relative flex justify-center overflow-hidden">
+      <div className="relative mx-auto max-w-[1000px] overflow-hidden px-6 sm:px-10">
         <div className="flex translate-y-[28%] items-center gap-3">
-          <span className="mb-6 h-4 w-4 rounded-full bg-accent" />
-          <span className="select-none font-serif text-[140px] font-semibold leading-none tracking-tight text-ink sm:text-[220px]">
+          <span className="mb-6 h-4 w-4 shrink-0 rounded-full bg-accent sm:h-6 sm:w-6" />
+          <span className="select-none whitespace-nowrap font-serif text-[120px] font-semibold leading-none tracking-tight text-ink sm:text-[220px]">
             Accurate
           </span>
         </div>
