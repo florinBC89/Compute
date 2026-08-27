@@ -41,6 +41,11 @@ body {
   );
 }
 
+.orb-red-orange {
+  background: radial-gradient(circle at 32% 28%, #ff2f2f 0%, #ff5a1f 45%, #ff8a2e 75%, #ff9d3d 100%);
+  box-shadow: 0 0 140px 70px rgba(255, 122, 26, 0.28);
+}
+
 .glow-footer {
   background: radial-gradient(
     60% 100% at 50% 100%,

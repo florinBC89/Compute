@@ -24,6 +24,15 @@ const LABEL_TONE = {
   light: "text-ink-secondary",
 };
 
+// Real asset sizes (public/black-chart.svg is 575x416, green-chart.svg is
+// 316x367) placed in one combined frame so the green chart continues where
+// the black one ends, both positioned in percent so they scale together.
+const FRAME_W = 745;
+const FRAME_H = 416;
+const BLACK = { w: 575, h: 416, x: 0, y: 0 };
+const GREEN = { w: 316, h: 367, x: 429, y: 41 };
+const pct = (v: number, of: number) => `${(v / of) * 100}%`;
+
 export default function ComputeOverview() {
   return (
     <section className="mx-auto max-w-[1000px] px-6 py-24 sm:px-10">
@@ -48,28 +57,38 @@ export default function ComputeOverview() {
       </div>
 
       <div className="glow-hero relative mt-4 flex flex-col items-center overflow-hidden rounded-card px-6 py-14">
-        <svg width="320" height="180" viewBox="0 0 320 180" className="max-w-full">
-          <path
-            d="M 20,160 A 140,140 0 0 1 247.27,50.53"
-            fill="none"
-            stroke="var(--dark)"
-            strokeWidth="34"
-            strokeLinecap="round"
+        <div
+          className="relative mx-auto w-full"
+          style={{ maxWidth: FRAME_W, aspectRatio: `${FRAME_W} / ${FRAME_H}` }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/black-chart.svg"
+            alt=""
+            className="absolute"
+            style={{ left: pct(BLACK.x, FRAME_W), top: pct(BLACK.y, FRAME_H), width: pct(BLACK.w, FRAME_W), height: pct(BLACK.h, FRAME_H) }}
           />
-          <path
-            d="M 247.27,50.53 A 140,140 0 0 1 300,160"
-            fill="none"
-            stroke="var(--good)"
-            strokeWidth="34"
-            strokeLinecap="round"
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/green-chart.svg"
+            alt=""
+            className="absolute"
+            style={{ left: pct(GREEN.x, FRAME_W), top: pct(GREEN.y, FRAME_H), width: pct(GREEN.w, FRAME_W), height: pct(GREEN.h, FRAME_H) }}
           />
-          <text x="14" y="97" className="fill-white font-serif text-[22px] font-semibold">
+
+          <span
+            className="absolute font-serif text-[28px] font-semibold text-white"
+            style={{ left: pct(210, FRAME_W), top: pct(150, FRAME_H) }}
+          >
             $500
-          </text>
-          <text x="255" y="107" className="fill-good font-serif text-[22px] font-semibold">
+          </span>
+          <span
+            className="absolute font-serif text-[28px] font-semibold text-white"
+            style={{ left: pct(560, FRAME_W), top: pct(150, FRAME_H) }}
+          >
             $200
-          </text>
-        </svg>
+          </span>
+        </div>
 
         <p className="mt-2 text-center font-serif text-[20px] font-semibold text-ink">
           Your Bill Has Two Parts

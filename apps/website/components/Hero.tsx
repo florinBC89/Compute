@@ -1,10 +1,4 @@
-function ProviderDot({ className = "" }: { className?: string }) {
-  return (
-    <span
-      className={`inline-block h-4 w-4 rounded-full border border-ink-muted/40 bg-page ${className}`}
-    />
-  );
-}
+import ProviderIcons from "./ProviderIcons";
 
 export default function Hero() {
   return (
@@ -27,11 +21,7 @@ export default function Hero() {
       <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row sm:gap-6">
         <div className="flex items-center gap-2 text-[12.5px] font-medium text-ink-secondary">
           Compatible with +100 LLMs
-          <span className="flex items-center -space-x-1.5">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <ProviderDot key={i} />
-            ))}
-          </span>
+          <ProviderIcons />
         </div>
         <div className="hidden h-4 w-px bg-border sm:block" />
         <div className="flex items-center gap-1.5 text-[12.5px] font-medium text-ink-secondary">

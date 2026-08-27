@@ -17,7 +17,7 @@ const config: Config = {
         dark: "var(--dark)",
       },
       fontFamily: {
-        serif: ["var(--font-fraunces)", "Georgia", "serif"],
+        serif: ["Kalnia", "Georgia", "serif"],
         sans: ["var(--font-inter)", "-apple-system", "Helvetica Neue", "sans-serif"],
         mono: ["var(--font-mono)", "ui-monospace", "SFMono-Regular", "monospace"],
       },
