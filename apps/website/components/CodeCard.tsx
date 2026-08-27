@@ -3,20 +3,25 @@ import type { ReactNode } from "react";
 interface CodeCardProps {
   label?: string;
   children: ReactNode;
+  flush?: boolean;
 }
 
-export default function CodeCard({ label, children }: CodeCardProps) {
+export default function CodeCard({ label, children, flush = false }: CodeCardProps) {
   return (
-    <div className="w-full overflow-hidden rounded-2xl bg-dark shadow-[0_20px_60px_-20px_rgba(20,15,10,0.5)]">
-      <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-        <span className="inline-flex items-center gap-1.5 rounded-pill bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent">
+    <div
+      className={`flex h-full w-full flex-col bg-dark ${
+        flush ? "" : "overflow-hidden rounded-2xl shadow-[0_20px_60px_-20px_rgba(20,15,10,0.5)]"
+      }`}
+    >
+      <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
+        <span className="inline-flex items-center gap-1.5 rounded-pill bg-accent px-3 py-1.5 text-[12px] font-semibold text-white">
           {"</>"} Python
         </span>
         {label ? (
-          <span className="text-[12px] font-medium text-white/50">{label}</span>
+          <span className="font-serif text-[16px] font-bold text-white sm:text-[20px]">{label}</span>
         ) : null}
       </div>
-      <pre className="overflow-x-auto px-4 py-4 font-mono text-[12.5px] leading-[1.7] text-white/90">
+      <pre className="flex-1 overflow-x-auto px-5 py-5 font-mono text-[12.5px] leading-[1.8] text-white/90">
         {children}
       </pre>
     </div>
