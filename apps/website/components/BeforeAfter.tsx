@@ -86,7 +86,7 @@ export default function BeforeAfter() {
         </CodeCard>
       </div>
 
-      <div className="glow-hero-filled relative -mx-6 mt-4 overflow-hidden px-6 pb-12 pt-16 text-center sm:-mx-10 sm:px-10 sm:pb-16 sm:pt-20">
+      <div className="glow-hero-filled relative mt-4 overflow-hidden rounded-2xl px-6 pb-12 pt-16 text-center sm:px-10 sm:pb-16 sm:pt-20">
         <h2 className="font-serif text-[30px] font-bold leading-tight text-ink sm:text-[42px]">
           Your Agent code stays the same
         </h2>
