@@ -238,6 +238,7 @@ async def get_run_graph(
             if source
             else None,
             "previous_latency_ms": source.latency_ms if source else None,
+            "reuse_kind": row.reuse_kind,
         }
 
     return RunGraph(

@@ -61,6 +61,9 @@ class GraphNode(BaseModel):
     previous_input_tokens: int | None = None
     previous_output_tokens: int | None = None
     previous_latency_ms: int | None = None
+    #: "CROSS_MODEL" when this HIT reused a portable artifact across a model
+    #: switch (V0.2); None for an ordinary HIT or any other status.
+    reuse_kind: str | None = None
 
 
 class GraphEdge(BaseModel):

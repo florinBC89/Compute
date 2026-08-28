@@ -12,7 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.models import Computation, Run
-from app.schemas.metrics import ProjectMetrics
+from app.schemas.metrics import (
+    ArtifactListResponse,
+    ProjectMetrics,
+    UsageBreakdownItem,
+    UsageResponse,
+)
 from app.services.scope import Scope, resolve_scope
 
 router = APIRouter(prefix="/projects", tags=["metrics"])
@@ -110,6 +115,27 @@ async def project_metrics(
         )
     ).scalar_one()
 
+    # V0.2: same join, narrowed to HITs recorded with reuse_kind="CROSS_MODEL"
+    # -- a strict subset of the totals above, not additional to them.
+    cross_model = (
+        await session.execute(
+            select(
+                func.coalesce(func.sum(source.cost_usd), 0),
+                func.coalesce(
+                    func.sum(source.input_tokens + source.output_tokens), 0
+                ),
+            )
+            .select_from(Computation)
+            .join(source, Computation.reused_from == source.id)
+            .where(
+                Computation.project_id == scope.project_id,
+                Computation.created_at >= since,
+                Computation.cache_status == "HIT",
+                Computation.reuse_kind == "CROSS_MODEL",
+            )
+        )
+    ).first()
+
     runs = (
         await session.execute(
             select(func.count(Run.id)).where(
@@ -128,4 +154,102 @@ async def project_metrics(
         tokens_consumed=int(sums[2]) + int(sums[3]),
         tokens_avoided=int(avoided or 0),
         llm_calls_avoided=int(llm_calls_avoided or 0),
+        cross_model_saved_usd=float(cross_model[0]) if cross_model else 0.0,
+        cross_model_tokens_avoided=int(cross_model[1]) if cross_model else 0,
+    )
+
+
+@router.get("/{project_slug}/artifacts", response_model=ArtifactListResponse)
+async def list_artifacts(
+    project_slug: str,
+    artifact_type: str | None = None,
+    scope: Scope = Depends(resolve_scope),
+    session: AsyncSession = Depends(get_session),
+) -> ArtifactListResponse:
+    """The newest successful computation per logical key, classified with an
+    artifact_type (V0.2). Backs the dashboard's Projects page.
+
+    ``DISTINCT ON`` is Postgres's idiomatic "latest row per group": ordering
+    by ``(logical_key, seq DESC)`` and taking the first row per
+    ``logical_key`` is exactly "the current version of each reusable
+    artifact," the same definition ``find_previous`` uses for reuse lookups.
+    """
+    statement = (
+        select(Computation)
+        .distinct(Computation.logical_key)
+        .where(
+            Computation.project_id == scope.project_id,
+            Computation.status == "SUCCEEDED",
+            Computation.artifact_type.is_not(None),
+        )
+    )
+    if artifact_type is not None:
+        statement = statement.where(Computation.artifact_type == artifact_type)
+    statement = statement.order_by(Computation.logical_key, Computation.seq.desc())
+
+    rows = (await session.execute(statement)).scalars().all()
+    return ArtifactListResponse(
+        artifacts=[
+            {
+                "logical_key": row.logical_key,
+                "name": row.name,
+                "artifact_type": row.artifact_type,
+                "model": row.model,
+                "reusable": bool(row.reusable),
+                "cost_usd": float(row.cost_usd or 0),
+                "created_at": row.created_at.isoformat() if row.created_at else "",
+            }
+            for row in rows
+        ]
+    )
+
+
+@router.get("/{project_slug}/usage", response_model=UsageResponse)
+async def usage(
+    project_slug: str,
+    period: str = "30d",
+    scope: Scope = Depends(resolve_scope),
+    session: AsyncSession = Depends(get_session),
+) -> UsageResponse:
+    """Cost and tokens broken down by model and task name (V0.2).
+
+    Real executions only (``cache_status`` other than ``HIT``): a HIT
+    observation row's own cost/tokens are zeroed by design (its cost is
+    recorded as *avoided*, on the source row), so including them here would
+    silently understate every model's real usage.
+    """
+    since = _period_start(period)
+    rows = (
+        await session.execute(
+            select(
+                Computation.model,
+                Computation.name,
+                func.count(),
+                func.coalesce(func.sum(Computation.cost_usd), 0),
+                func.coalesce(func.sum(Computation.input_tokens), 0),
+                func.coalesce(func.sum(Computation.output_tokens), 0),
+            )
+            .where(
+                Computation.project_id == scope.project_id,
+                Computation.created_at >= since,
+                Computation.cache_status != "HIT",
+            )
+            .group_by(Computation.model, Computation.name)
+            .order_by(func.sum(Computation.cost_usd).desc())
+        )
+    ).all()
+
+    return UsageResponse(
+        period=period,
+        items=[
+            UsageBreakdownItem(
+                model=model,
+                name=name,
+                computations=int(count),
+                cost_usd=float(cost),
+                input_tokens=int(input_tokens),
+                output_tokens=int(output_tokens),
+            )
+            for model, name, count, cost, input_tokens, output_tokens in rows
+        ],
     )
