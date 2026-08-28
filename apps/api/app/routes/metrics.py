@@ -18,6 +18,7 @@ from app.schemas.metrics import (
     UsageBreakdownItem,
     UsageResponse,
 )
+from app.services.artifacts import artifact_list_item, list_project_artifacts
 from app.services.scope import Scope, resolve_scope
 
 router = APIRouter(prefix="/projects", tags=["metrics"])
@@ -166,42 +167,9 @@ async def list_artifacts(
     scope: Scope = Depends(resolve_scope),
     session: AsyncSession = Depends(get_session),
 ) -> ArtifactListResponse:
-    """The newest successful computation per logical key, classified with an
-    artifact_type (V0.2). Backs the dashboard's Projects page.
-
-    ``DISTINCT ON`` is Postgres's idiomatic "latest row per group": ordering
-    by ``(logical_key, seq DESC)`` and taking the first row per
-    ``logical_key`` is exactly "the current version of each reusable
-    artifact," the same definition ``find_previous`` uses for reuse lookups.
-    """
-    statement = (
-        select(Computation)
-        .distinct(Computation.logical_key)
-        .where(
-            Computation.project_id == scope.project_id,
-            Computation.status == "SUCCEEDED",
-            Computation.artifact_type.is_not(None),
-        )
-    )
-    if artifact_type is not None:
-        statement = statement.where(Computation.artifact_type == artifact_type)
-    statement = statement.order_by(Computation.logical_key, Computation.seq.desc())
-
-    rows = (await session.execute(statement)).scalars().all()
-    return ArtifactListResponse(
-        artifacts=[
-            {
-                "logical_key": row.logical_key,
-                "name": row.name,
-                "artifact_type": row.artifact_type,
-                "model": row.model,
-                "reusable": bool(row.reusable),
-                "cost_usd": float(row.cost_usd or 0),
-                "created_at": row.created_at.isoformat() if row.created_at else "",
-            }
-            for row in rows
-        ]
-    )
+    """Backs the dashboard's Projects page (V0.2)."""
+    rows = await list_project_artifacts(session, scope.project_id, artifact_type)
+    return ArtifactListResponse(artifacts=[artifact_list_item(row) for row in rows])
 
 
 @router.get("/{project_slug}/usage", response_model=UsageResponse)

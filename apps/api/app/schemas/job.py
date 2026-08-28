@@ -24,6 +24,7 @@ class JobResponse(BaseModel):
     spent_usd: float
     cost_cap_usd: float
     run_id: str | None = None
+    project_id: str
 
 
 class JobEventItem(BaseModel):

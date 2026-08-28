@@ -23,6 +23,7 @@ from app.routes import (
     metrics,
     resources,
     runs,
+    workspace,
 )
 from app.services.locks import close_redis, get_redis
 
@@ -65,6 +66,7 @@ app.include_router(artifact_policies.router, prefix="/v1")
 app.include_router(cross_model.router, prefix="/v1")
 app.include_router(me.router, prefix="/v1")
 app.include_router(jobs.router, prefix="/v1")
+app.include_router(workspace.router, prefix="/v1")
 
 
 @app.get("/health", tags=["ops"])

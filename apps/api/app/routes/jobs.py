@@ -47,6 +47,7 @@ def _to_response(job: Job) -> JobResponse:
         spent_usd=float(job.spent_usd),
         cost_cap_usd=float(job.cost_cap_usd),
         run_id=str(job.run_id) if job.run_id else None,
+        project_id=str(job.project_id),
     )
 
 
