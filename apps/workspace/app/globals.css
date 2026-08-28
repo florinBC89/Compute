@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Same token vocabulary as apps/dashboard/app/globals.css. */
+:root {
+  color-scheme: light;
+  --page: #f2efea;
+  --surface: #ffffff;
+  --surface-raised: #14120f;
+  --ink: #14120f;
+  --ink-secondary: #6f6b63;
+  --ink-muted: #a4a099;
+  --border: rgba(20, 18, 15, 0.08);
+
+  --accent: #eb6834;
+  --accent-soft: #fbe3d3;
+  --accent-track: #f6d9c4;
+
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --info: #2a78d6;
+  --violet: #4a3aa7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #100f0d;
+    --surface: #1a1815;
+    --surface-raised: #000000;
+    --ink: #f5f3ef;
+    --ink-secondary: #c3c2b7;
+    --ink-muted: #83807a;
+    --border: rgba(255, 255, 255, 0.09);
+
+    --accent: #d95926;
+    --accent-soft: #3a2418;
+    --accent-track: #4a2e1c;
+
+    --good: #0ca30c;
+    --warning: #fab219;
+    --serious: #ec835a;
+    --critical: #e66767;
+    --info: #3987e5;
+    --violet: #9085e9;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #100f0d;
+  --surface: #1a1815;
+  --surface-raised: #000000;
+  --ink: #f5f3ef;
+  --ink-secondary: #c3c2b7;
+  --ink-muted: #83807a;
+  --border: rgba(255, 255, 255, 0.09);
+
+  --accent: #d95926;
+  --accent-soft: #3a2418;
+  --accent-track: #4a2e1c;
+
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #e66767;
+  --info: #3987e5;
+  --violet: #9085e9;
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  background: var(--page);
+  color: var(--ink);
+}
