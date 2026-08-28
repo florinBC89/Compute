@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any, Callable
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -56,9 +57,14 @@ async def _claim_next_job(
         return job
 
 
-async def _run_one(session_factory: async_sessionmaker[AsyncSession], job: Job) -> None:
+async def _run_one(
+    session_factory: async_sessionmaker[AsyncSession],
+    job: Job,
+    *,
+    transport_factory: Callable[[str, str], Any] | None = None,
+) -> None:
     try:
-        await run_research_pipeline(job, session_factory)
+        await run_research_pipeline(job, session_factory, transport_factory=transport_factory)
     except Exception:
         logger.exception("job %s failed", job.id)
         async with session_factory() as session:

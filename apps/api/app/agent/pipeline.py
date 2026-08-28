@@ -1,6 +1,6 @@
-"""The real research pipeline (V0.2 human workspace, Phase 4).
+"""The real research pipeline (V0.2 human workspace).
 
-Five steps, each one `cl.compute.run()` call against this process's own API
+Six steps, each one `cl.compute.run()` call against this process's own API
 (see app.config.Settings.internal_api_url) -- exactly the same reuse
 engine, cost ledger and model-switch-preview endpoint a real SDK user gets,
 with zero special-casing for "this call came from the worker." Passing an
@@ -10,21 +10,23 @@ auto-wires the dependency graph (see
 `dependencies=[]` needed, the same pattern `benchmarks/research-agent/
 workflow.py` uses for its (fake) topology.
 
-OpenAI-only for now (Phase 7 adds Anthropic/Gemini behind the same
-`openai_provider.complete` shape). `extract_facts` currently draws on the
-model's general knowledge rather than a live search -- Phase 5 adds Tavily
-and feeds real sources into it instead.
+`search_sources` is the one non-LLM step (a Tavily call, no `model=` --
+search results aren't tied to any model's identity, matching the spec's own
+portability table: "Search results -- Portable -- Reuse when still fresh").
+Everything downstream is OpenAI-only for now (Phase 7 adds Anthropic/Gemini
+behind the same `openai_provider.complete` shape).
 """
 
 from __future__ import annotations
 
 import uuid
+from typing import Any, Awaitable, Callable
 
 from computelayer import ComputeLayer
 from computelayer.result import ComputeResult
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agent import job_control
+from app.agent import job_control, tavily
 from app.agent.job_control import CostCapReached, JobCancelled
 from app.agent.providers import openai as openai_provider
 from app.config import get_settings
@@ -37,11 +39,17 @@ __all__ = ["run_research_pipeline", "CostCapReached", "JobCancelled"]
 MODEL = openai_provider.MODEL
 MAX_TOKENS_PER_STEP = 400
 
+#: Search results are reused for an hour before a re-run treats them as
+#: stale -- long enough that switching models mid-project doesn't trigger a
+#: pointless re-search, short enough that "today's news" stays honest.
+SOURCE_TTL_SECONDS = 3600
+
+SEARCH_SOURCES_QUERY_SUFFIX = " latest news"
 EXTRACT_FACTS_SYSTEM = (
-    "You are a careful research assistant. Given a research task, list the "
-    "key facts and claims most relevant to it as a short bulleted list. "
-    "You have no live web access -- rely on general knowledge and flag "
-    "anything time-sensitive as potentially outdated."
+    "You are a careful research assistant. Given a research task and a set "
+    "of real, current search results, list the key facts and claims most "
+    "relevant to the task as a short bulleted list, grounded in those "
+    "sources rather than general knowledge alone."
 )
 RESEARCH_BACKGROUND_SYSTEM = (
     "You are a research assistant. Given a research task and a set of known "
@@ -126,9 +134,10 @@ async def _run_step(
     *,
     name: str,
     inputs: dict,
-    system: str,
-    prompt: str,
+    fn: Callable[[], Awaitable[Any]],
     artifact_type: str | None,
+    model: str | None = None,
+    ttl: int | None = None,
 ) -> ComputeResult:
     await job_control.guard(session_factory, job_id)
     await job_control.set_current_step(session_factory, job_id, name)
@@ -137,12 +146,11 @@ async def _run_step(
     result = await cl.compute.run(
         name=name,
         inputs=inputs,
-        fn=lambda: openai_provider.complete(
-            system=system, prompt=prompt, max_tokens=MAX_TOKENS_PER_STEP
-        ),
-        model=MODEL,
+        fn=fn,
+        model=model,
         artifact_type=artifact_type,
         cross_model_reuse=True,
+        ttl=ttl,
     )
 
     if result.cost_usd:
@@ -153,34 +161,72 @@ async def _run_step(
     return result
 
 
+def _llm_step(system: str, prompt: str) -> Callable[[], Awaitable[str]]:
+    return lambda: openai_provider.complete(
+        system=system, prompt=prompt, max_tokens=MAX_TOKENS_PER_STEP
+    )
+
+
 async def run_research_pipeline(
-    job: Job, session_factory: async_sessionmaker[AsyncSession]
+    job: Job,
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    transport_factory: Callable[[str, str], Any] | None = None,
 ) -> None:
+    """``transport_factory(api_key, project_slug) -> Transport`` is a test-only
+    seam: when given, it builds the SDK transport instead of the normal
+    api_key+base_url path (see ComputeLayer's own `transport=` override).
+    Production never passes it -- tests use it to bind the SDK straight to
+    an in-process ASGI transport (no real socket, no server lifecycle to
+    race against) rather than a real HTTP server, since the *freshly minted*
+    internal API key isn't known until after this function starts, so the
+    transport can't be pre-built by the caller.
+    """
     settings = get_settings()
     project_slug = await _project_slug(session_factory, job.project_id)
     api_key, api_key_id = await _provision_internal_key(
         session_factory, job.workspace_id, job.project_id
     )
+    transport = transport_factory(api_key, project_slug) if transport_factory else None
 
     await job_control.emit(session_factory, job.id, "STARTED")
 
     try:
         async with ComputeLayer(
-            api_key=api_key, project=project_slug, base_url=settings.internal_api_url
+            api_key=api_key,
+            project=project_slug,
+            base_url=settings.internal_api_url,
+            transport=transport,
         ) as cl:
             async with cl.run(external_run_id=str(job.id)) as run:
                 await _set_run_id(session_factory, job.id, run.id)
                 task = job.task_text
+
+                sources = await _run_step(
+                    cl,
+                    session_factory,
+                    job.id,
+                    name="search_sources",
+                    inputs={"query": task},
+                    fn=lambda: tavily.search(task + SEARCH_SOURCES_QUERY_SUFFIX),
+                    artifact_type="source",
+                    ttl=SOURCE_TTL_SECONDS,
+                )
+                sources_text = "\n".join(
+                    f"- {item['title']}: {item['content']}" for item in sources.value
+                ) or "(no search results found)"
 
                 facts = await _run_step(
                     cl,
                     session_factory,
                     job.id,
                     name="extract_facts",
-                    inputs={"task": task},
-                    system=EXTRACT_FACTS_SYSTEM,
-                    prompt=task,
+                    inputs={"task": task, "sources": sources},
+                    fn=_llm_step(
+                        EXTRACT_FACTS_SYSTEM, f"Task: {task}\n\nSearch results:\n{sources_text}"
+                    ),
                     artifact_type="fact",
+                    model=MODEL,
                 )
 
                 research = await _run_step(
@@ -189,9 +235,12 @@ async def run_research_pipeline(
                     job.id,
                     name="research_background",
                     inputs={"task": task, "facts": facts},
-                    system=RESEARCH_BACKGROUND_SYSTEM,
-                    prompt=f"Task: {task}\n\nKnown facts:\n{facts.value}",
+                    fn=_llm_step(
+                        RESEARCH_BACKGROUND_SYSTEM,
+                        f"Task: {task}\n\nKnown facts:\n{facts.value}",
+                    ),
                     artifact_type="research_note",
+                    model=MODEL,
                 )
 
                 analysis = await _run_step(
@@ -200,9 +249,11 @@ async def run_research_pipeline(
                     job.id,
                     name="analyze",
                     inputs={"task": task, "research": research},
-                    system=ANALYZE_SYSTEM,
-                    prompt=f"Task: {task}\n\nBackground:\n{research.value}",
+                    fn=_llm_step(
+                        ANALYZE_SYSTEM, f"Task: {task}\n\nBackground:\n{research.value}"
+                    ),
                     artifact_type="analysis",
+                    model=MODEL,
                 )
 
                 draft = await _run_step(
@@ -211,9 +262,11 @@ async def run_research_pipeline(
                     job.id,
                     name="write_draft",
                     inputs={"task": task, "analysis": analysis},
-                    system=WRITE_DRAFT_SYSTEM,
-                    prompt=f"Task: {task}\n\nAnalysis:\n{analysis.value}",
+                    fn=_llm_step(
+                        WRITE_DRAFT_SYSTEM, f"Task: {task}\n\nAnalysis:\n{analysis.value}"
+                    ),
                     artifact_type="draft",
+                    model=MODEL,
                 )
 
                 await _run_step(
@@ -222,9 +275,11 @@ async def run_research_pipeline(
                     job.id,
                     name="fact_check",
                     inputs={"draft": draft, "facts": facts},
-                    system=FACT_CHECK_SYSTEM,
-                    prompt=f"Draft:\n{draft.value}\n\nKnown facts:\n{facts.value}",
+                    fn=_llm_step(
+                        FACT_CHECK_SYSTEM, f"Draft:\n{draft.value}\n\nKnown facts:\n{facts.value}"
+                    ),
                     artifact_type=None,
+                    model=MODEL,
                 )
 
         async with session_factory() as session:
