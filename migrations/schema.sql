@@ -1,7 +1,7 @@
--- ComputeLayer schema (spec §6, plus the V0.2 cross-model reuse slice), as
--- raw DDL.
+-- ComputeLayer schema (spec §6, plus the V0.2 cross-model reuse and human
+-- workspace slices), as raw DDL.
 --
--- Alembic revisions 0001+0002 are what actually run; this file is the
+-- Alembic revisions 0001-0003 are what actually run; this file is the
 -- readable reference and is verified to apply cleanly to PostgreSQL 16.
 
 CREATE TABLE workspaces (
@@ -227,3 +227,65 @@ CREATE UNIQUE INDEX ux_artifact_policy_workspace_default
 CREATE UNIQUE INDEX ux_artifact_policy_project_override
     ON artifact_type_policies (workspace_id, project_id, artifact_type)
     WHERE project_id IS NOT NULL;
+
+-- V0.2 human workspace: end-user identity (owned by Supabase Auth; this
+-- table only maps a Supabase user id onto the app-side data model) and job
+-- orchestration state for one consumer research task. `jobs` is
+-- deliberately separate from `runs` -- `runs` stays the SDK's spec-defined
+-- compute-grouping; `jobs` is queued/running/cancellation/spend-cap state
+-- that has no reason to live in that schema.
+CREATE TABLE users (
+    id                 UUID PRIMARY KEY,
+    supabase_user_id   TEXT NOT NULL UNIQUE,
+    email              TEXT NOT NULL,
+    created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ix_users_supabase_user_id ON users (supabase_user_id);
+
+CREATE TABLE workspace_members (
+    id             UUID PRIMARY KEY,
+    workspace_id   UUID NOT NULL REFERENCES workspaces (id),
+    user_id        UUID NOT NULL REFERENCES users (id),
+    role           TEXT NOT NULL DEFAULT 'owner',
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_workspace_members_role CHECK (role IN ('owner'))
+);
+CREATE INDEX ix_workspace_members_workspace_id ON workspace_members (workspace_id);
+CREATE INDEX ix_workspace_members_user_id ON workspace_members (user_id);
+CREATE UNIQUE INDEX ux_workspace_members_workspace_user
+    ON workspace_members (workspace_id, user_id);
+
+CREATE TABLE jobs (
+    id                UUID PRIMARY KEY,
+    workspace_id      UUID NOT NULL REFERENCES workspaces (id),
+    project_id        UUID NOT NULL REFERENCES projects (id),
+    user_id           UUID NOT NULL REFERENCES users (id),
+    run_id            UUID REFERENCES runs (id),
+    task_text         TEXT NOT NULL,
+    model_preference  TEXT,
+    status            TEXT NOT NULL DEFAULT 'QUEUED',
+    current_step      TEXT,
+    error_message     TEXT,
+    cost_cap_usd      NUMERIC(18, 8) NOT NULL DEFAULT 0.50,
+    spent_usd         NUMERIC(18, 8) NOT NULL DEFAULT 0,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    started_at        TIMESTAMPTZ,
+    finished_at       TIMESTAMPTZ,
+    CONSTRAINT ck_jobs_status
+        CHECK (status IN ('QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELLED'))
+);
+CREATE INDEX ix_jobs_workspace_id ON jobs (workspace_id);
+CREATE INDEX ix_jobs_project_id ON jobs (project_id);
+CREATE INDEX ix_jobs_user_id ON jobs (user_id);
+CREATE INDEX ix_jobs_run_id ON jobs (run_id);
+-- The worker's dispatch query: oldest QUEUED job first.
+CREATE INDEX idx_jobs_queued ON jobs (created_at) WHERE status = 'QUEUED';
+
+CREATE TABLE job_events (
+    id          BIGSERIAL PRIMARY KEY,
+    job_id      UUID NOT NULL REFERENCES jobs (id) ON DELETE CASCADE,
+    event_type  TEXT NOT NULL,
+    payload     JSONB NOT NULL DEFAULT '{}',
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX idx_job_events_job ON job_events (job_id, id);

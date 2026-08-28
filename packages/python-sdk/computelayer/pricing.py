@@ -29,6 +29,14 @@ MODEL_PRICING: dict[str, dict[str, float]] = {
         "input_per_million": 0.80,
         "output_per_million": 4.00,
     },
+    "google/gemini-2.5-pro": {
+        "input_per_million": 1.25,
+        "output_per_million": 10.00,
+    },
+    "google/gemini-2.5-flash": {
+        "input_per_million": 0.30,
+        "output_per_million": 2.50,
+    },
     "meta-llama/llama-3.1-70b-instruct": {
         "input_per_million": 0.30,
         "output_per_million": 0.30,

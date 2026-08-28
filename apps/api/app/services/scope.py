@@ -26,7 +26,9 @@ class Scope:
     workspace_id: uuid.UUID
     project_id: uuid.UUID
     project_slug: str
-    api_key_id: uuid.UUID
+    # None for a Supabase-session-derived scope (app.services.user_scope) --
+    # there is no ApiKey row backing it.
+    api_key_id: uuid.UUID | None
 
 
 def hash_api_key(plaintext: str) -> str:

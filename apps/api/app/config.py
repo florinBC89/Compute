@@ -30,6 +30,22 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     cors_origins: str = "http://localhost:3000"
 
+    #: Human workspace (V0.2 slice): Supabase is used strictly as the
+    #: end-user identity provider -- app data stays in this same Postgres.
+    #: JWTs are verified against Supabase's JWKS endpoint (asymmetric keys),
+    #: not a shared secret -- Supabase's own guidance recommends against the
+    #: legacy HS256 shared-secret approach.
+    supabase_url: str | None = None
+
+    #: Platform-owned provider keys for the real research pipeline (§ human
+    #: workspace). Users never supply their own -- spend is bounded per job
+    #: by `default_job_cost_cap_usd` instead.
+    openai_api_key: str | None = None
+    anthropic_api_key: str | None = None
+    gemini_api_key: str | None = None
+    tavily_api_key: str | None = None
+    default_job_cost_cap_usd: float = 0.50
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
