@@ -14,12 +14,16 @@ export interface Me {
   projects: ProjectSummary[];
 }
 
-const API_URL = process.env.COMPUTELAYER_API_URL ?? "http://localhost:8000/v1";
+export const API_URL = process.env.COMPUTELAYER_API_URL ?? "http://localhost:8000/v1";
 
 // Server-side only: forwards the signed-in user's own Supabase access token
-// as the bearer token, so the API's resolve_user_scope verifies it exactly
-// as it would any other Supabase session (see apps/api/app/services/user_scope.py).
-async function authorizedFetch(path: string, init?: RequestInit): Promise<Response> {
+// as the bearer token, so the API's resolve_user_scope/resolve_current_user
+// verifies it exactly as it would any other Supabase session (see
+// apps/api/app/services/user_scope.py). Exported for the app/api/* route
+// handlers, which proxy specific API calls the browser can't make directly
+// (streaming SSE needs the token forwarded server-side; POST/cancel keep
+// the API's URL out of the client bundle, same reasoning as getMe below).
+export async function authorizedFetch(path: string, init?: RequestInit): Promise<Response> {
   const supabase = await createClient();
   const {
     data: { session },

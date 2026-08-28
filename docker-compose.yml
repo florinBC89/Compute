@@ -63,6 +63,26 @@ services:
              python -m app.bootstrap &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000"
 
+  # V0.2 human workspace: picks up QUEUED jobs and runs the research
+  # pipeline. Same image as `api` (same Dockerfile/build context), different
+  # process -- there is no reason for these to be separate images, only
+  # separate running processes.
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql+asyncpg://computelayer:computelayer@postgres:5432/computelayer
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: INFO
+      SUPABASE_URL: https://rpwmfhlmdscjpcrqqmyf.supabase.co
+    command: python -m app.worker
+
 volumes:
   postgres_data:
   artifacts:
