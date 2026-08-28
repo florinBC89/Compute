@@ -26,7 +26,7 @@ from app.config import get_settings
 #: The pricing-table key (see computelayer.pricing.MODEL_PRICING) --
 #: intentionally distinct from the real API model id below, matching the
 #: "provider/model" convention every other model string in this codebase
-#: already uses (openai/gpt-4o, anthropic/claude-sonnet-4, ...).
+#: already uses (openai/gpt-4o, anthropic/claude-sonnet-5, ...).
 MODEL = "openai/gpt-4o-mini"
 _REAL_MODEL = "gpt-4o-mini"
 

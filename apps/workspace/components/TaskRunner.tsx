@@ -20,11 +20,21 @@ interface JobDetail {
 
 const TERMINAL_TYPES = new Set(["SUCCEEDED", "FAILED", "CANCELLED"]);
 
-// Phases 3-6 (V0.2 human workspace): task input -> live SSE progress ->
+// Phase 7: a real 3-way provider choice. "Auto - Best value" (the spec's
+// own default) is Phase 9 -- routing individual steps to different models
+// automatically isn't built yet, so it isn't offered as a choice here.
+const MODEL_OPTIONS: { value: string; label: string }[] = [
+  { value: "openai", label: "GPT-4o mini" },
+  { value: "anthropic", label: "Claude Haiku 4.5" },
+  { value: "gemini", label: "Gemini 3.6 Flash" },
+];
+
+// Phases 3-7 (V0.2 human workspace): task input -> live SSE progress ->
 // (Phase 6) the real result screen once the job succeeds, backed by the
 // run's actual recorded cost/reuse numbers rather than a placeholder.
 export default function TaskRunner() {
   const [taskText, setTaskText] = useState("");
+  const [modelPreference, setModelPreference] = useState(MODEL_OPTIONS[0].value);
   const [jobId, setJobId] = useState<string | null>(null);
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [done, setDone] = useState(false);
@@ -46,7 +56,7 @@ export default function TaskRunner() {
     const response = await fetch("/api/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task_text: taskText }),
+      body: JSON.stringify({ task_text: taskText, model_preference: modelPreference }),
     });
     if (!response.ok) {
       setError("Could not start the task.");
@@ -108,6 +118,22 @@ export default function TaskRunner() {
               Start research
             </button>
           )}
+        </div>
+
+        <div className="mt-2 flex items-center gap-2 text-[13px] text-ink-muted">
+          Model
+          <select
+            value={modelPreference}
+            onChange={(e) => setModelPreference(e.target.value)}
+            disabled={running}
+            className="rounded-pill border border-border bg-page px-3 py-1 text-[13px] text-ink outline-none focus:border-accent disabled:opacity-60"
+          >
+            {MODEL_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         {error ? <p className="mt-3 text-[13.5px] text-critical">{error}</p> : null}

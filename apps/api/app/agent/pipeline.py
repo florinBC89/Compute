@@ -13,8 +13,17 @@ workflow.py` uses for its (fake) topology.
 `search_sources` is the one non-LLM step (a Tavily call, no `model=` --
 search results aren't tied to any model's identity, matching the spec's own
 portability table: "Search results -- Portable -- Reuse when still fresh").
-Everything downstream is OpenAI-only for now (Phase 7 adds Anthropic/Gemini
-behind the same `openai_provider.complete` shape).
+Everything downstream picks one provider for the whole run based on
+`job.model_preference` (Phase 7) -- manual, whole-run switching; a later
+phase can route individual steps to different providers, but nothing in
+the spec's V1 mockups asks for that yet.
+
+`search_sources` through `analyze` opt into cross-model reuse (portable,
+provider-agnostic research); `write_draft` and `fact_check` do not -- the
+spec's own model-switch example draws this exact line ("Claude only needs
+to: Review relevant existing context, Perform the requested rewrite"): the
+draft is specifically what the new model is being asked to write, and
+reusing it verbatim would make a model switch free but pointless.
 """
 
 from __future__ import annotations
@@ -28,6 +37,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent import job_control, tavily
 from app.agent.job_control import CostCapReached, JobCancelled
+from app.agent.providers import anthropic as anthropic_provider
+from app.agent.providers import gemini as gemini_provider
 from app.agent.providers import openai as openai_provider
 from app.config import get_settings
 from app.models import ApiKey, Job, Project
@@ -36,7 +47,25 @@ from app.services.scope import KEY_PREFIX_LENGTH, generate_api_key, hash_api_key
 
 __all__ = ["run_research_pipeline", "CostCapReached", "JobCancelled"]
 
-MODEL = openai_provider.MODEL
+#: job.model_preference -> provider module. Unset or unrecognized falls back
+#: to DEFAULT_PROVIDER -- today's only choice before this phase, and still
+#: the safe default once there are three.
+#:
+#: Resolved to a *module*, not a `(complete_fn, MODEL)` tuple captured at
+#: import time: a captured function reference silently stops following
+#: `monkeypatch.setattr(openai_provider, "complete", ...)` in tests (the
+#: patch changes the module's attribute; a tuple built once at import time
+#: already has a copy of the *old* value) -- exactly the class of bug that
+#: let a cost-cap test call the real OpenAI API instead of the fixture's
+#: mock. Looking up `.complete`/`.MODEL` on the module fresh in
+#: `_resolve_provider` is what keeps monkeypatching working.
+PROVIDER_MODULES = {
+    "openai": openai_provider,
+    "anthropic": anthropic_provider,
+    "gemini": gemini_provider,
+}
+DEFAULT_PROVIDER = "openai"
+
 MAX_TOKENS_PER_STEP = 400
 
 #: Search results are reused for an hour before a re-run treats them as
@@ -138,6 +167,7 @@ async def _run_step(
     artifact_type: str | None,
     model: str | None = None,
     ttl: int | None = None,
+    cross_model_reuse: bool = True,
 ) -> ComputeResult:
     await job_control.guard(session_factory, job_id)
     await job_control.set_current_step(session_factory, job_id, name)
@@ -149,7 +179,7 @@ async def _run_step(
         fn=fn,
         model=model,
         artifact_type=artifact_type,
-        cross_model_reuse=True,
+        cross_model_reuse=cross_model_reuse,
         ttl=ttl,
     )
 
@@ -161,10 +191,15 @@ async def _run_step(
     return result
 
 
-def _llm_step(system: str, prompt: str) -> Callable[[], Awaitable[str]]:
-    return lambda: openai_provider.complete(
-        system=system, prompt=prompt, max_tokens=MAX_TOKENS_PER_STEP
-    )
+def _resolve_provider(model_preference: str | None) -> tuple[Callable[..., Awaitable[str]], str]:
+    module = PROVIDER_MODULES.get(model_preference or "", PROVIDER_MODULES[DEFAULT_PROVIDER])
+    return module.complete, module.MODEL
+
+
+def _llm_step(
+    complete_fn: Callable[..., Awaitable[str]], system: str, prompt: str
+) -> Callable[[], Awaitable[str]]:
+    return lambda: complete_fn(system=system, prompt=prompt, max_tokens=MAX_TOKENS_PER_STEP)
 
 
 async def run_research_pipeline(
@@ -188,6 +223,7 @@ async def run_research_pipeline(
         session_factory, job.workspace_id, job.project_id
     )
     transport = transport_factory(api_key, project_slug) if transport_factory else None
+    complete_fn, model = _resolve_provider(job.model_preference)
 
     await job_control.emit(session_factory, job.id, "STARTED")
 
@@ -223,10 +259,12 @@ async def run_research_pipeline(
                     name="extract_facts",
                     inputs={"task": task, "sources": sources},
                     fn=_llm_step(
-                        EXTRACT_FACTS_SYSTEM, f"Task: {task}\n\nSearch results:\n{sources_text}"
+                        complete_fn,
+                        EXTRACT_FACTS_SYSTEM,
+                        f"Task: {task}\n\nSearch results:\n{sources_text}",
                     ),
                     artifact_type="fact",
-                    model=MODEL,
+                    model=model,
                 )
 
                 research = await _run_step(
@@ -236,11 +274,12 @@ async def run_research_pipeline(
                     name="research_background",
                     inputs={"task": task, "facts": facts},
                     fn=_llm_step(
+                        complete_fn,
                         RESEARCH_BACKGROUND_SYSTEM,
                         f"Task: {task}\n\nKnown facts:\n{facts.value}",
                     ),
                     artifact_type="research_note",
-                    model=MODEL,
+                    model=model,
                 )
 
                 analysis = await _run_step(
@@ -250,12 +289,23 @@ async def run_research_pipeline(
                     name="analyze",
                     inputs={"task": task, "research": research},
                     fn=_llm_step(
-                        ANALYZE_SYSTEM, f"Task: {task}\n\nBackground:\n{research.value}"
+                        complete_fn, ANALYZE_SYSTEM, f"Task: {task}\n\nBackground:\n{research.value}"
                     ),
                     artifact_type="analysis",
-                    model=MODEL,
+                    model=model,
                 )
 
+                # write_draft and fact_check deliberately do NOT set
+                # cross_model_reuse: per the spec's own model-switch example
+                # ("Claude only needs to: Review relevant existing context,
+                # Perform the requested rewrite"), only the *research*
+                # (sources/facts/background/analysis) is meant to survive a
+                # model switch untouched -- the draft is specifically what
+                # the new model is being asked to (re)write, and a stale
+                # fact-check against a *new* draft would be meaningless.
+                # Reusing them here would make switching models free but
+                # pointless: identical prose re-labeled under a model that
+                # never actually wrote it.
                 draft = await _run_step(
                     cl,
                     session_factory,
@@ -263,10 +313,11 @@ async def run_research_pipeline(
                     name="write_draft",
                     inputs={"task": task, "analysis": analysis},
                     fn=_llm_step(
-                        WRITE_DRAFT_SYSTEM, f"Task: {task}\n\nAnalysis:\n{analysis.value}"
+                        complete_fn, WRITE_DRAFT_SYSTEM, f"Task: {task}\n\nAnalysis:\n{analysis.value}"
                     ),
                     artifact_type="draft",
-                    model=MODEL,
+                    model=model,
+                    cross_model_reuse=False,
                 )
 
                 await _run_step(
@@ -276,10 +327,13 @@ async def run_research_pipeline(
                     name="fact_check",
                     inputs={"draft": draft, "facts": facts},
                     fn=_llm_step(
-                        FACT_CHECK_SYSTEM, f"Draft:\n{draft.value}\n\nKnown facts:\n{facts.value}"
+                        complete_fn,
+                        FACT_CHECK_SYSTEM,
+                        f"Draft:\n{draft.value}\n\nKnown facts:\n{facts.value}",
                     ),
                     artifact_type=None,
-                    model=MODEL,
+                    model=model,
+                    cross_model_reuse=False,
                 )
 
         async with session_factory() as session:

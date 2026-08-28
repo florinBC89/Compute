@@ -21,19 +21,18 @@ PRICING_FILE_ENV = "COMPUTELAYER_PRICING_FILE"
 MODEL_PRICING: dict[str, dict[str, float]] = {
     "openai/gpt-4o": {"input_per_million": 2.50, "output_per_million": 10.00},
     "openai/gpt-4o-mini": {"input_per_million": 0.15, "output_per_million": 0.60},
-    "anthropic/claude-sonnet-4": {
-        "input_per_million": 3.00,
-        "output_per_million": 15.00,
-    },
-    "anthropic/claude-haiku-4": {
-        "input_per_million": 0.80,
-        "output_per_million": 4.00,
-    },
-    "google/gemini-2.5-pro": {
-        "input_per_million": 1.25,
+    "anthropic/claude-sonnet-5": {
+        "input_per_million": 2.00,
         "output_per_million": 10.00,
     },
-    "google/gemini-2.5-flash": {
+    "anthropic/claude-haiku-4-5": {
+        "input_per_million": 1.00,
+        "output_per_million": 5.00,
+    },
+    # gemini-2.5-flash is retired (confirmed live against the real API,
+    # 2026-08-28); gemini-3.6-flash is its current fast/cheap-tier
+    # successor.
+    "google/gemini-3.6-flash": {
         "input_per_million": 0.30,
         "output_per_million": 2.50,
     },

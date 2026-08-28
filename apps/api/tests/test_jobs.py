@@ -225,6 +225,35 @@ async def fake_openai(monkeypatch):
 
 
 @pytest_asyncio.fixture
+async def fake_anthropic(monkeypatch):
+    """Same shape as fake_openai, for the anthropic provider module --
+    lets a test prove model_preference="anthropic" actually dispatches
+    there instead of silently falling through to OpenAI.
+    """
+    from app.agent.providers import anthropic as anthropic_provider
+    from computelayer.context import LLMCall, record_llm_call
+
+    calls: list[float] = []
+
+    async def _fake_complete(*, system: str, prompt: str, max_tokens: int = 400) -> str:
+        cost = calls.pop(0) if calls else 0.001
+        record_llm_call(
+            LLMCall(
+                model=anthropic_provider.MODEL,
+                provider="anthropic",
+                input_tokens=50,
+                output_tokens=50,
+                cost_usd=cost,
+                latency_ms=5,
+            )
+        )
+        return f"[fake claude completion for: {prompt[:40]}]"
+
+    monkeypatch.setattr(anthropic_provider, "complete", _fake_complete)
+    return calls
+
+
+@pytest_asyncio.fixture
 async def fake_tavily(monkeypatch):
     """Replaces the real Tavily call -- no automated test should make a
     real, billed call to a third-party search API.
@@ -449,3 +478,92 @@ async def test_events_stream_closes_after_terminal_event(
 
     assert any('"event_type":"QUEUED"' in line for line in lines)
     assert any('"event_type":"SUCCEEDED"' in line for line in lines)
+
+
+@pytest.mark.asyncio
+async def test_pipeline_dispatches_to_the_requested_provider(
+    workspace_http_client,
+    auth_headers,
+    engine,
+    pipeline_transport_factory,
+    fake_openai,
+    fake_anthropic,
+    fake_tavily,
+):
+    """model_preference="anthropic" must call the anthropic provider, not
+    silently fall through to OpenAI -- a real bug once caught here (a
+    module-level dict of captured `(complete_fn, MODEL)` tuples stopped
+    following `monkeypatch.setattr`, which let a cost-cap test call the
+    *real* OpenAI API because the fixture's patch had no effect on the
+    already-captured reference).
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app import worker
+    from app.models import Computation, Job
+
+    created = await workspace_http_client.post(
+        "/jobs",
+        json={"task_text": "switch to claude", "model_preference": "anthropic"},
+        headers=auth_headers,
+    )
+    job_id = uuid.UUID(created.json()["id"])
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    claimed = await worker._claim_next_job(session_factory)
+    await worker._run_one(
+        session_factory, claimed, transport_factory=pipeline_transport_factory
+    )
+
+    async with session_factory() as session:
+        job = await session.get(Job, job_id)
+        assert job.status == "SUCCEEDED"
+
+        computations = (
+            await session.execute(
+                Computation.__table__.select().where(Computation.run_id == job.run_id)
+            )
+        ).mappings().all()
+        models_used = {c["model"] for c in computations if c["model"] is not None}
+        assert models_used == {"anthropic/claude-haiku-4-5"}
+
+
+@pytest.mark.asyncio
+async def test_pipeline_falls_back_to_default_provider_for_unrecognized_preference(
+    workspace_http_client,
+    auth_headers,
+    engine,
+    pipeline_transport_factory,
+    fake_openai,
+    fake_anthropic,
+    fake_tavily,
+):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app import worker
+    from app.models import Computation, Job
+
+    created = await workspace_http_client.post(
+        "/jobs",
+        json={"task_text": "typo'd model", "model_preference": "chatgpt-please"},
+        headers=auth_headers,
+    )
+    job_id = uuid.UUID(created.json()["id"])
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    claimed = await worker._claim_next_job(session_factory)
+    await worker._run_one(
+        session_factory, claimed, transport_factory=pipeline_transport_factory
+    )
+
+    async with session_factory() as session:
+        job = await session.get(Job, job_id)
+        assert job.status == "SUCCEEDED"
+
+        computations = (
+            await session.execute(
+                Computation.__table__.select().where(Computation.run_id == job.run_id)
+            )
+        ).mappings().all()
+        models_used = {c["model"] for c in computations if c["model"] is not None}
+        assert models_used == {"openai/gpt-4o-mini"}
