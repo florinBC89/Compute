@@ -50,6 +50,7 @@ services:
       BOOTSTRAP_PROJECT: research-agent
       BOOTSTRAP_API_KEY: cl_test_local_development_key
       LOG_LEVEL: INFO
+      SUPABASE_URL: https://rpwmfhlmdscjpcrqqmyf.supabase.co
     ports:
       - "8000:8000"
     volumes:
