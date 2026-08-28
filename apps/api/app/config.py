@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     tavily_api_key: str | None = None
     default_job_cost_cap_usd: float = 0.50
 
+    #: Where app.worker's ComputeLayer client sends its compute.run() calls
+    #: -- this process's own API, over the same HTTP protocol any external
+    #: SDK user goes through (see app.agent.pipeline). In docker-compose
+    #: that's the sibling `api` service; in production, the API's internal
+    #: URL.
+    internal_api_url: str = "http://localhost:8000/v1"
+
     @property
     def cors_origin_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

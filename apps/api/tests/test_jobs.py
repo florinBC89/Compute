@@ -152,19 +152,94 @@ async def test_cancel_queued_job(workspace_http_client, auth_headers):
     assert response.json()["status"] == "CANCELLED"
 
 
+def _free_port() -> int:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+@pytest_asyncio.fixture
+async def internal_api_url(workspace_http_client):
+    """A *real* uvicorn server bound to a local port, sharing this test
+    process's already-test-wired db._engine/_sessionmaker. app.agent.pipeline
+    makes real HttpTransport calls against `settings.internal_api_url`
+    exactly as it would against a sibling `api` container in production --
+    pointing that setting at this real local server (instead of mocking the
+    transport layer) tests the actual production code path unmodified.
+    """
+    import asyncio
+
+    import uvicorn
+
+    from app.main import app as fastapi_app
+
+    port = _free_port()
+    config = uvicorn.Config(fastapi_app, host="127.0.0.1", port=port, log_level="warning")
+    server = uvicorn.Server(config)
+    task = asyncio.create_task(server.serve())
+    while not server.started:
+        await asyncio.sleep(0.01)
+
+    yield f"http://127.0.0.1:{port}/v1"
+
+    server.should_exit = True
+    await task
+
+
+@pytest_asyncio.fixture
+async def fake_openai(monkeypatch):
+    """Replaces the real OpenAI call with a fast, free, deterministic one --
+    it still calls record_llm_call() with the same shape the real provider
+    module does, so Compute.run()'s cost ledger works exactly as it would
+    for a real call. `calls` lets a test control/observe per-call cost.
+    """
+    from app.agent.providers import openai as openai_provider
+    from computelayer.context import LLMCall, record_llm_call
+
+    calls: list[float] = []  # cost_usd per call, in order; default 0.001 each
+
+    async def _fake_complete(*, system: str, prompt: str, max_tokens: int = 400) -> str:
+        cost = calls.pop(0) if calls else 0.001
+        record_llm_call(
+            LLMCall(
+                model=openai_provider.MODEL,
+                provider="openai",
+                input_tokens=50,
+                output_tokens=50,
+                cost_usd=cost,
+                latency_ms=5,
+            )
+        )
+        return f"[fake completion for: {prompt[:40]}]"
+
+    monkeypatch.setattr(openai_provider, "complete", _fake_complete)
+    return calls
+
+
 @pytest.mark.asyncio
-async def test_worker_runs_stub_pipeline_to_completion(
-    workspace_http_client, auth_headers, engine, monkeypatch
+async def test_pipeline_runs_to_completion(
+    workspace_http_client,
+    auth_headers,
+    engine,
+    internal_api_url,
+    fake_openai,
 ):
+    import os
+
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from app import worker
-    from app.models import Job, JobEvent
+    from app.config import get_settings
+    from app.models import Computation, Job, JobEvent, Run
 
-    monkeypatch.setattr(worker, "STEP_DURATION_SECONDS", 0)
+    os.environ["INTERNAL_API_URL"] = internal_api_url
+    get_settings.cache_clear()
 
     created = await workspace_http_client.post(
-        "/jobs", json={"task_text": "quick job"}, headers=auth_headers
+        "/jobs", json={"task_text": "research today's AI infrastructure news"},
+        headers=auth_headers,
     )
     job_id = uuid.UUID(created.json()["id"])
 
@@ -172,13 +247,33 @@ async def test_worker_runs_stub_pipeline_to_completion(
     claimed = await worker._claim_next_job(session_factory)
     assert claimed is not None and claimed.id == job_id
 
-    await worker.run_stub_pipeline(session_factory, claimed)
+    await worker._run_one(session_factory, claimed)
 
     async with session_factory() as session:
         job = await session.get(Job, job_id)
         assert job.status == "SUCCEEDED"
         assert job.current_step is None
         assert job.finished_at is not None
+        assert job.run_id is not None
+        assert 0 < float(job.spent_usd) < float(job.cost_cap_usd)
+
+        run = await session.get(Run, job.run_id)
+        assert run is not None and run.status == "SUCCEEDED"
+
+        computations = (
+            await session.execute(
+                Computation.__table__.select().where(Computation.run_id == job.run_id)
+            )
+        ).mappings().all()
+        assert {c["name"] for c in computations} == {
+            "extract_facts",
+            "research_background",
+            "analyze",
+            "write_draft",
+            "fact_check",
+        }
+        assert {c["name"]: c["artifact_type"] for c in computations}["extract_facts"] == "fact"
+        assert {c["name"]: c["artifact_type"] for c in computations}["fact_check"] is None
 
         events = (
             (
@@ -192,29 +287,28 @@ async def test_worker_runs_stub_pipeline_to_completion(
             .all()
         )
         event_types = [e["event_type"] for e in events]
-        assert event_types == [
-            "QUEUED",
-            "STARTED",
-            "STEP_STARTED",
-            "STEP_FINISHED",
-            "STEP_STARTED",
-            "STEP_FINISHED",
-            "STEP_STARTED",
-            "STEP_FINISHED",
-            "SUCCEEDED",
-        ]
+        assert event_types == (
+            ["QUEUED", "STARTED"]
+            + ["STEP_STARTED", "STEP_FINISHED"] * 5
+            + ["SUCCEEDED"]
+        )
 
 
 @pytest.mark.asyncio
-async def test_worker_stops_when_job_is_cancelled_mid_pipeline(
-    workspace_http_client, auth_headers, engine, monkeypatch
+async def test_pipeline_stops_when_job_is_cancelled_mid_pipeline(
+    workspace_http_client, auth_headers, engine, internal_api_url, fake_openai, monkeypatch
 ):
+    import os
+
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
     from app import worker
+    from app.agent import job_control
+    from app.config import get_settings
     from app.models import Job
 
-    monkeypatch.setattr(worker, "STEP_DURATION_SECONDS", 0)
+    os.environ["INTERNAL_API_URL"] = internal_api_url
+    get_settings.cache_clear()
 
     created = await workspace_http_client.post(
         "/jobs", json={"task_text": "cancel mid-flight"}, headers=auth_headers
@@ -224,28 +318,83 @@ async def test_worker_stops_when_job_is_cancelled_mid_pipeline(
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
     claimed = await worker._claim_next_job(session_factory)
 
-    original_emit = worker._emit
+    original_emit = job_control.emit
     call_count = 0
 
     async def _emit_then_cancel(session_factory, job_id_arg, event_type, payload=None):
         nonlocal call_count
         call_count += 1
         await original_emit(session_factory, job_id_arg, event_type, payload)
-        if event_type == "STEP_FINISHED" and call_count >= 4:
+        if event_type == "STEP_FINISHED" and call_count >= 4:  # after 2 steps
             async with session_factory() as session:
                 job = await session.get(Job, job_id_arg)
                 job.status = "CANCELLED"
                 await session.commit()
 
-    monkeypatch.setattr(worker, "_emit", _emit_then_cancel)
+    # pipeline.py calls `job_control.emit(...)` as an attribute lookup on
+    # the module object each time, so patching it here (the same module
+    # object pipeline.py imported) is enough -- no separate patch needed.
+    monkeypatch.setattr(job_control, "emit", _emit_then_cancel)
 
-    await worker.run_stub_pipeline(session_factory, claimed)
+    await worker._run_one(session_factory, claimed)
 
     async with session_factory() as session:
         job = await session.get(Job, job_id)
-        # The worker must not clobber the externally-set CANCELLED status
+        # The pipeline must not clobber the externally-set CANCELLED status
         # back to SUCCEEDED.
         assert job.status == "CANCELLED"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_stops_when_cost_cap_reached(
+    workspace_http_client, auth_headers, engine, internal_api_url, fake_openai
+):
+    import os
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app import worker
+    from app.config import get_settings
+    from app.models import Computation, Job
+
+    os.environ["INTERNAL_API_URL"] = internal_api_url
+    get_settings.cache_clear()
+
+    # First step costs $0.05; the job's cap ($0.03, set below) is exceeded
+    # after it, so the guard before step 2 must stop the pipeline there.
+    fake_openai.append(0.05)
+
+    created = await workspace_http_client.post(
+        "/jobs", json={"task_text": "expensive task"}, headers=auth_headers
+    )
+    job_id = uuid.UUID(created.json()["id"])
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        job = await session.get(Job, job_id)
+        job.cost_cap_usd = 0.03
+        await session.commit()
+
+    claimed = await worker._claim_next_job(session_factory)
+    await worker._run_one(session_factory, claimed)
+
+    async with session_factory() as session:
+        job = await session.get(Job, job_id)
+        assert job.status == "FAILED"
+        assert job.error_message == "cost cap reached"
+        assert float(job.spent_usd) == pytest.approx(0.05)
+
+        # The one artifact already produced stays -- and reusable -- even
+        # though the job overall failed on cost.
+        computations = (
+            await session.execute(
+                Computation.__table__.select().where(Computation.run_id == job.run_id)
+            )
+        ).mappings().all()
+        assert len(computations) == 1
+        assert computations[0]["name"] == "extract_facts"
+        assert computations[0]["status"] == "SUCCEEDED"
+        assert computations[0]["reusable"] is True
 
 
 @pytest.mark.asyncio

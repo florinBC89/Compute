@@ -1,4 +1,4 @@
-"""Job worker (V0.2 human-workspace slice, Phase 3).
+"""Job worker (V0.2 human-workspace slice).
 
     python -m app.worker
 
@@ -10,10 +10,11 @@ system's reliable source of truth. `SKIP LOCKED` is what makes running more
 than one worker later a non-breaking change: each worker simply skips rows
 another one already has locked, no extra coordination needed.
 
-This module runs a *stub* pipeline (Phase 3 scope): three fixed steps with
-no real work behind them, proving the queue/worker/SSE-events plumbing end
-to end before Phase 4 adds the real provider-calling pipeline behind the
-same `run_pipeline` seam.
+The actual research pipeline lives in app.agent.pipeline -- this module is
+only the dispatch loop: claim a job, hand it to the pipeline, record a
+failure if the pipeline raises something it didn't already handle itself
+(cancellation and cost-cap breaches are handled inside the pipeline; this
+is the catch-all for genuine errors, e.g. a provider outage).
 """
 
 from __future__ import annotations
@@ -24,40 +25,15 @@ import logging
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.agent.pipeline import run_research_pipeline
 from app.config import get_settings
 from app.db import get_sessionmaker
-from app.models import Job, JobEvent
+from app.models import Job
 from app.models.base import utcnow
 
 logger = logging.getLogger("computelayer.worker")
 
 POLL_INTERVAL_SECONDS = 1.0
-STEP_DURATION_SECONDS = 2.0
-
-#: Phase 4 replaces this with app.agent.pipeline.run_research_pipeline,
-#: which performs these same named steps for real and additionally checks
-#: the cost cap between them -- the queue/SSE/cancellation machinery around
-#: it does not change.
-STUB_STEPS = ("search_sources", "extract_facts", "write_draft")
-
-
-async def _emit(
-    session_factory: async_sessionmaker[AsyncSession],
-    job_id,
-    event_type: str,
-    payload: dict | None = None,
-) -> None:
-    async with session_factory() as session:
-        session.add(JobEvent(job_id=job_id, event_type=event_type, payload=payload or {}))
-        await session.commit()
-
-
-async def _is_still_running(
-    session_factory: async_sessionmaker[AsyncSession], job_id
-) -> bool:
-    async with session_factory() as session:
-        job = await session.get(Job, job_id)
-        return job is not None and job.status == "RUNNING"
 
 
 async def _claim_next_job(
@@ -80,41 +56,9 @@ async def _claim_next_job(
         return job
 
 
-async def run_stub_pipeline(
-    session_factory: async_sessionmaker[AsyncSession], job: Job
-) -> None:
-    await _emit(session_factory, job.id, "STARTED")
-
-    for step in STUB_STEPS:
-        if not await _is_still_running(session_factory, job.id):
-            logger.info("job %s no longer RUNNING -- stopping", job.id)
-            return
-
-        async with session_factory() as session:
-            live_job = await session.get(Job, job.id)
-            live_job.current_step = step
-            await session.commit()
-        await _emit(session_factory, job.id, "STEP_STARTED", {"step": step})
-
-        await asyncio.sleep(STEP_DURATION_SECONDS)
-
-        await _emit(session_factory, job.id, "STEP_FINISHED", {"step": step})
-
-    async with session_factory() as session:
-        live_job = await session.get(Job, job.id)
-        if live_job.status != "RUNNING":
-            # Cancelled during the last step's sleep.
-            return
-        live_job.status = "SUCCEEDED"
-        live_job.current_step = None
-        live_job.finished_at = utcnow()
-        await session.commit()
-    await _emit(session_factory, job.id, "SUCCEEDED")
-
-
 async def _run_one(session_factory: async_sessionmaker[AsyncSession], job: Job) -> None:
     try:
-        await run_stub_pipeline(session_factory, job)
+        await run_research_pipeline(job, session_factory)
     except Exception:
         logger.exception("job %s failed", job.id)
         async with session_factory() as session:
@@ -124,7 +68,6 @@ async def _run_one(session_factory: async_sessionmaker[AsyncSession], job: Job) 
                 live_job.error_message = "internal error"
                 live_job.finished_at = utcnow()
                 await session.commit()
-        await _emit(session_factory, job.id, "FAILED")
 
 
 async def worker_loop() -> None:

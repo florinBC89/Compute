@@ -81,6 +81,12 @@ services:
       REDIS_URL: redis://redis:6379/0
       LOG_LEVEL: INFO
       SUPABASE_URL: https://rpwmfhlmdscjpcrqqmyf.supabase.co
+      # Sibling `api` service, over the same HTTP protocol any external SDK
+      # user goes through (see app.agent.pipeline).
+      INTERNAL_API_URL: http://api:8000/v1
+      # Real key, not committed: comes from the repo-root .env (gitignored)
+      # via docker compose's built-in ${VAR} substitution.
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
     command: python -m app.worker
 
 volumes:
