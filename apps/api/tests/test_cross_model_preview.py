@@ -34,6 +34,47 @@ async def test_portable_artifact_is_marked_reusable(cl, http_client) -> None:
 
 
 @pytest.mark.asyncio
+async def test_preview_still_reuses_after_a_prior_cross_model_hit(cl, http_client) -> None:
+    """Regression test for a real bug in app.services.lookup.find_previous:
+    a cross-model HIT writes an observation row (cache_status=HIT, no
+    output/artifact_type of its own). Before the fix, find_previous had no
+    cache_status filter, so once that observation existed it -- being the
+    newest row -- shadowed the real classified computation underneath it,
+    and previewing a *second* model switch on the same logical key
+    incorrectly saw "not classified" and reported RECOMPUTE for a source
+    that was genuinely still portable.
+    """
+    async with cl.run() as run:
+        await cl.compute.run(
+            name="fact_extraction",
+            inputs={"ticker": "NVDA"},
+            model="openai/gpt-4o",
+            artifact_type="fact",
+            cross_model_reuse=True,
+            fn=lambda: {"revenue": 100},
+        )
+    async with cl.run() as run:
+        # Real cross-model HIT: writes the observation row that used to
+        # shadow the source on the next lookup/preview.
+        await cl.compute.run(
+            name="fact_extraction",
+            inputs={"ticker": "NVDA"},
+            model="anthropic/claude-3-5-sonnet",
+            artifact_type="fact",
+            cross_model_reuse=True,
+            fn=lambda: {"revenue": 100},
+        )
+
+    response = await http_client.post(
+        f"/runs/{run.id}/preview-model-switch",
+        json={"target_model": "google/gemini-2.5-pro"},
+    )
+    assert response.status_code == 200
+    item = response.json()["items"][0]
+    assert item["decision"] == "REUSE"
+
+
+@pytest.mark.asyncio
 async def test_unclassified_computation_needs_recompute(cl, http_client) -> None:
     async with cl.run() as run:
         await cl.compute.run(

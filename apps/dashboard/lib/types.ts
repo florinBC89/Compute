@@ -94,3 +94,21 @@ export interface UsageBreakdownItem {
   input_tokens: number;
   output_tokens: number;
 }
+
+export interface ModelSwitchPreviewItem {
+  name: string;
+  logical_key: string;
+  decision: "REUSE" | "RECOMPUTE";
+  reason: string;
+  artifact_type: ArtifactType | null;
+  current_model: string | null;
+  cost_if_recomputed_usd: number;
+}
+
+export interface ModelSwitchPreview {
+  target_model: string;
+  items: ModelSwitchPreviewItem[];
+  reusable_count: number;
+  recompute_count: number;
+  estimated_incremental_cost_usd: number;
+}

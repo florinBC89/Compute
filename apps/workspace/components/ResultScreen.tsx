@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { GraphNode, RunSummary } from "@/lib/api";
+import ModelSwitchPreview from "./ModelSwitchPreview";
 
 function formatUsd(value: number): string {
   return `$${value.toFixed(value < 0.01 ? 4 : 2)}`;
@@ -12,11 +13,21 @@ function formatTokens(value: number): string {
   return String(value);
 }
 
-// Phase 6 (V0.2 human workspace): the spec's consumer result screen --
+// Phases 6+8 (V0.2 human workspace): the spec's consumer result screen --
 // "Research complete / You paid $X / You avoided $Y" in plain language,
 // technical detail (the node-by-node trace) behind "View details" rather
-// than shown by default.
-export default function ResultScreen({ runId }: { runId: string }) {
+// than shown by default -- plus a "Switch model" preview so trying a
+// different model on the same work is a visible, trustworthy choice
+// instead of a hidden cache decision.
+export default function ResultScreen({
+  runId,
+  currentModel,
+  onSwitchModel,
+}: {
+  runId: string;
+  currentModel: string;
+  onSwitchModel: (model: string) => void;
+}) {
   const [summary, setSummary] = useState<RunSummary | null>(null);
   const [nodes, setNodes] = useState<GraphNode[] | null>(null);
   const [showDetails, setShowDetails] = useState(false);
@@ -63,6 +74,7 @@ export default function ResultScreen({ runId }: { runId: string }) {
   const totalTokens = summary.input_tokens + summary.output_tokens;
 
   return (
+    <>
     <div className="mt-8 rounded-card border border-border bg-surface p-6">
       <h2 className="text-[16px] font-semibold text-ink">Research complete</h2>
 
@@ -134,5 +146,11 @@ export default function ResultScreen({ runId }: { runId: string }) {
         </ul>
       ) : null}
     </div>
+    <ModelSwitchPreview
+      runId={runId}
+      currentModel={currentModel}
+      onContinue={onSwitchModel}
+    />
+    </>
   );
 }

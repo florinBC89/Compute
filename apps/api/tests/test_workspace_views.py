@@ -1,9 +1,11 @@
-"""Workspace-scoped project/run views (V0.2 human-workspace slice, Phase 6).
+"""Workspace-scoped project/run views (V0.2 human-workspace slice, Phases
+6 and 8).
 
 Covers the same numbers the developer dashboard's project-slug routes
-already report (app.services.artifacts/app.services.runs are shared), plus
-the ownership check that's unique to this surface: a project or run
-belonging to a *different* workspace must 404, not leak data.
+already report (app.services.artifacts/app.services.runs/app.services.
+cross_model are shared), plus the ownership check that's unique to this
+surface: a project or run belonging to a *different* workspace must 404,
+not leak data.
 """
 
 from __future__ import annotations
@@ -120,6 +122,8 @@ async def seeded_run(engine, workspace_http_client, auth_headers):
                 status="SUCCEEDED",
                 cache_status="MISS",
                 artifact_type="fact",
+                model="openai/gpt-4o-mini",
+                model_agnostic_fingerprint="e" * 64,
                 cost_usd=0.001,
                 input_tokens=10,
                 output_tokens=10,
@@ -212,6 +216,50 @@ async def test_run_from_another_workspace_is_not_found(
     other_token = _make_token(keypair, sub=str(uuid.uuid4()), email="other@example.com")
     response = await workspace_http_client.get(
         f"/workspace/runs/{seeded_run['run_id']}",
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_preview_model_switch_reuses_portable_artifact_and_recomputes_unclassified(
+    workspace_http_client, auth_headers, seeded_run
+):
+    """extract_facts (artifact_type="fact", a real model_agnostic_fingerprint,
+    default-portable) should preview as REUSE against a different target
+    model; fact_check (artifact_type=None) can never be a cross-model
+    source and must preview as RECOMPUTE.
+    """
+    response = await workspace_http_client.post(
+        f"/workspace/runs/{seeded_run['run_id']}/preview-model-switch",
+        json={"target_model": "anthropic/claude-haiku-4-5"},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    by_name = {item["name"]: item for item in body["items"]}
+
+    assert by_name["extract_facts"]["decision"] == "REUSE"
+    assert by_name["extract_facts"]["cost_if_recomputed_usd"] == 0.0
+
+    assert by_name["fact_check"]["decision"] == "RECOMPUTE"
+    assert "not classified" in by_name["fact_check"]["reason"]
+
+    assert body["reusable_count"] == 1
+    assert body["recompute_count"] == 1
+    # fact_check's own recorded cost (0.0005) is what recomputing it costs.
+    assert body["estimated_incremental_cost_usd"] == pytest.approx(0.0005)
+
+
+@pytest.mark.asyncio
+async def test_preview_model_switch_from_another_workspace_is_not_found(
+    workspace_http_client, keypair, seeded_run
+):
+    other_token = _make_token(keypair, sub=str(uuid.uuid4()), email="other@example.com")
+    response = await workspace_http_client.post(
+        f"/workspace/runs/{seeded_run['run_id']}/preview-model-switch",
+        json={"target_model": "anthropic/claude-haiku-4-5"},
         headers={"Authorization": f"Bearer {other_token}"},
     )
     assert response.status_code == 404

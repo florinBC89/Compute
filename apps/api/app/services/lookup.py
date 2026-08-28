@@ -101,6 +101,19 @@ async def find_previous(
     A previous *failure* does not count: a computation that produced no result
     is nothing for the new one to be stale against, so that case resolves to
     MISS.
+
+    ``cache_status != 'HIT'`` excludes observation rows (see
+    ``record_hit_observation``): those record that a reuse *happened*, but
+    carry no output of their own (``output_json`` is always NULL) and no
+    ``artifact_type``/``model_agnostic_fingerprint`` -- real bug, found via
+    a real second-then-third cross-model switch: once one HIT observation
+    existed for a logical key, it -- being the newest row -- shadowed the
+    real classified computation underneath it, so every *subsequent* lookup
+    or model-switch-preview for that key saw "not classified" and refused
+    to reuse or preview a switch, even though a portable source genuinely
+    existed one row down. Excluding HIT rows here is what keeps "reusable
+    or not" (a real row that opted out of being a future source) from
+    accidentally including "not a source at all" (a pure audit record).
     """
     statement = (
         select(Computation)
@@ -109,6 +122,7 @@ async def find_previous(
             Computation.project_id == scope.project_id,
             Computation.logical_key == logical_key,
             Computation.status == "SUCCEEDED",
+            Computation.cache_status != "HIT",
         )
         .order_by(Computation.seq.desc())
         .limit(1)

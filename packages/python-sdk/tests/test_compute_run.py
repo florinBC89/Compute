@@ -143,6 +143,35 @@ class BasicLifecycleTests(ComputeRunTestCase):
         self.assertEqual(second.reuse_kind, "CROSS_MODEL")
         self.assertEqual(second.value, {"a": 1})
 
+    async def test_third_model_switch_still_reuses_after_a_hit_observation_exists(
+        self,
+    ) -> None:
+        # Regression test for a real bug: the second call's cross-model HIT
+        # writes an observation row (cache_status=HIT, no output/
+        # artifact_type of its own -- see LocalBackend.lookup). Before the
+        # fix, _find_previous had no cache_status filter, so once that
+        # observation existed it -- being the newest row -- shadowed the
+        # real classified computation underneath it, and this *third* call
+        # (a second model switch on the same logical key) incorrectly saw
+        # "not classified" and went STALE instead of reusing.
+        async def call(model: str, *, cross_model_reuse: bool = False):
+            return await self.cl.compute.run(
+                name="fact_extraction",
+                inputs={"ticker": "NVDA"},
+                model=model,
+                artifact_type="fact",
+                cross_model_reuse=cross_model_reuse,
+                fn=lambda: {"a": 1},
+            )
+
+        await call("openai/gpt-4o")
+        await call("anthropic/claude-3-5-sonnet", cross_model_reuse=True)
+        third = await call("google/gemini-3.6-flash", cross_model_reuse=True)
+
+        self.assertEqual(third.cache_status, CacheStatus.HIT)
+        self.assertEqual(third.reuse_kind, "CROSS_MODEL")
+        self.assertEqual(third.value, {"a": 1})
+
     async def test_non_portable_artifact_type_still_goes_stale(self) -> None:
         # cross_model_reuse=True alone isn't enough -- the artifact type must
         # also be portable per policy. "hidden_reasoning" isn't one of the

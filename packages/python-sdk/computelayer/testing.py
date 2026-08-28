@@ -110,10 +110,22 @@ class LocalBackend:
         return None
 
     def _find_previous(self, logical_key: str) -> StoredComputation | None:
+        # cache_status != HIT excludes observation rows (inserted below, in
+        # lookup()): they record that a reuse *happened* but carry no output
+        # of their own and no artifact_type/model_agnostic_fingerprint. Real
+        # bug, found via a real second-then-third cross-model switch against
+        # the Postgres-backed API (apps/api/app/services/lookup.py's
+        # find_previous had the identical gap): once one HIT observation
+        # existed for a logical key, it -- being the newest row -- shadowed
+        # the real classified computation underneath it, so a *subsequent*
+        # lookup or model-switch-preview for that key saw "not classified"
+        # and refused to reuse or preview a switch that a portable source
+        # genuinely supported.
         for row in self._rows_newest_first():
             if (
                 row["logical_key"] == logical_key
                 and row["status"] == ComputationStatus.SUCCEEDED
+                and row.get("cache_status") != CacheStatus.HIT
             ):
                 return self._stored(row)
         return None

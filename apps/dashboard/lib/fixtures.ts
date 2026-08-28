@@ -3,6 +3,7 @@ import type {
   ArtifactType,
   GraphEdge,
   GraphNode,
+  ModelSwitchPreview,
   ProjectMetrics,
   RunGraph,
   RunListItem,
@@ -265,4 +266,40 @@ export function demoUsage(): UsageBreakdownItem[] {
   return [...totals.values()]
     .map((item) => ({ ...item, cost_usd: Number(item.cost_usd.toFixed(4)) }))
     .sort((a, b) => b.cost_usd - a.cost_usd);
+}
+
+// V0.2 (Phase 8): derived from the same demoArtifacts() every other
+// preview-adjacent fixture uses. "draft" (final_report) previews as
+// RECOMPUTE, matching apps/api/app/agent/pipeline.py's real distinction --
+// the draft is specifically what the new model is being asked to write, so
+// reusing it across a model switch would be free but pointless. Everything
+// else (sources, facts, research, analysis) previews as REUSE.
+export function demoModelSwitchPreview(targetModel: string): ModelSwitchPreview {
+  const items = demoArtifacts().map((artifact) => {
+    const reusable = artifact.artifact_type !== "draft";
+    return {
+      name: artifact.name,
+      logical_key: artifact.logical_key,
+      decision: reusable ? ("REUSE" as const) : ("RECOMPUTE" as const),
+      reason: reusable
+        ? `portable ${artifact.artifact_type}; only the model would change`
+        : "the draft is what the new model is being asked to (re)write",
+      artifact_type: artifact.artifact_type,
+      current_model: artifact.model,
+      cost_if_recomputed_usd: reusable ? 0 : artifact.cost_usd,
+    };
+  });
+
+  return {
+    target_model: targetModel,
+    items,
+    reusable_count: items.filter((i) => i.decision === "REUSE").length,
+    recompute_count: items.filter((i) => i.decision === "RECOMPUTE").length,
+    estimated_incremental_cost_usd: Number(
+      items
+        .filter((i) => i.decision === "RECOMPUTE")
+        .reduce((sum, i) => sum + i.cost_if_recomputed_usd, 0)
+        .toFixed(4),
+    ),
+  };
 }

@@ -72,6 +72,24 @@ export interface RunGraph {
   edges: GraphEdge[];
 }
 
+export interface PreviewItem {
+  name: string;
+  logical_key: string;
+  decision: "REUSE" | "RECOMPUTE";
+  reason: string;
+  artifact_type: ArtifactType | null;
+  current_model: string | null;
+  cost_if_recomputed_usd: number;
+}
+
+export interface ModelSwitchPreview {
+  target_model: string;
+  items: PreviewItem[];
+  reusable_count: number;
+  recompute_count: number;
+  estimated_incremental_cost_usd: number;
+}
+
 export const API_URL = process.env.COMPUTELAYER_API_URL ?? "http://localhost:8000/v1";
 
 // Server-side only: forwards the signed-in user's own Supabase access token

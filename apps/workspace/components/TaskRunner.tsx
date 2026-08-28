@@ -46,8 +46,10 @@ export default function TaskRunner() {
     return () => eventSourceRef.current?.close();
   }, []);
 
-  async function startTask() {
+  async function startTask(modelOverride?: string) {
     if (!taskText.trim()) return;
+    const model = modelOverride ?? modelPreference;
+    setModelPreference(model);
     setError(null);
     setEvents([]);
     setDone(false);
@@ -56,7 +58,7 @@ export default function TaskRunner() {
     const response = await fetch("/api/jobs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ task_text: taskText, model_preference: modelPreference }),
+      body: JSON.stringify({ task_text: taskText, model_preference: model }),
     });
     if (!response.ok) {
       setError("Could not start the task.");
@@ -112,7 +114,7 @@ export default function TaskRunner() {
           ) : (
             <button
               type="button"
-              onClick={startTask}
+              onClick={() => startTask()}
               className="rounded-pill bg-accent px-5 py-2.5 text-[14px] font-semibold text-white"
             >
               Start research
@@ -160,7 +162,11 @@ export default function TaskRunner() {
 
       {job?.status === "SUCCEEDED" && job.run_id ? (
         <>
-          <ResultScreen runId={job.run_id} />
+          <ResultScreen
+            runId={job.run_id}
+            currentModel={modelPreference}
+            onSwitchModel={(model) => startTask(model)}
+          />
           <Link
             href={`/projects/${job.project_id}`}
             className="mt-3 block text-center text-[13px] text-ink-muted hover:text-ink"

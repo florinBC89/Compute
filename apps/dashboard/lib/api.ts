@@ -1,6 +1,14 @@
-import { DEMO_RUNS, DEMO_RUN_GRAPHS, demoArtifacts, demoMetrics, demoUsage } from "./fixtures";
+import {
+  DEMO_RUNS,
+  DEMO_RUN_GRAPHS,
+  demoArtifacts,
+  demoMetrics,
+  demoModelSwitchPreview,
+  demoUsage,
+} from "./fixtures";
 import type {
   ArtifactListItem,
+  ModelSwitchPreview,
   ProjectMetrics,
   RunGraph,
   RunListItem,
@@ -29,6 +37,22 @@ async function request<T>(path: string): Promise<T> {
       Authorization: `Bearer ${API_KEY}`,
       "Content-Type": "application/json",
     },
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    throw new Error(`ComputeLayer API ${response.status}: ${await response.text()}`);
+  }
+  return response.json() as Promise<T>;
+}
+
+async function requestPost<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
     cache: "no-store",
   });
   if (!response.ok) {
@@ -85,6 +109,20 @@ export async function getUsage(period = "30d"): Promise<UsageBreakdownItem[]> {
     `/projects/${PROJECT}/usage?period=${period}`
   );
   return data.items;
+}
+
+// V0.2 (Phase 8): what would carry over if this run's work were repeated on
+// a different model, before actually executing anything -- the developer
+// dashboard's counterpart to the workspace app's "Switch model" screen,
+// backed by the same POST /runs/{id}/preview-model-switch endpoint.
+export async function previewModelSwitch(
+  runId: string,
+  targetModel: string
+): Promise<ModelSwitchPreview> {
+  if (isDemoMode) return demoModelSwitchPreview(targetModel);
+  return requestPost<ModelSwitchPreview>(`/runs/${runId}/preview-model-switch`, {
+    target_model: targetModel,
+  });
 }
 
 // The "How Accurate thinks" example on Overview: a real run that reused some

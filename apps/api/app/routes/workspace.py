@@ -19,10 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.models import Project, Run
+from app.schemas.cross_model import PreviewModelSwitchRequest, PreviewModelSwitchResponse
 from app.schemas.metrics import ArtifactListResponse
 from app.schemas.run import RunGraph, RunSummary
 from app.services.artifacts import artifact_list_item, list_project_artifacts
+from app.services.cross_model import build_preview
 from app.services.runs import run_graph_data, run_totals
+from app.services.scope import Scope
 from app.services.user_scope import CurrentUser, resolve_current_user
 
 router = APIRouter(prefix="/workspace", tags=["workspace"])
@@ -86,3 +89,27 @@ async def workspace_run_graph(
     """Backs the result screen's "View details" trace view."""
     await _owned_run(session, run_id, current_user)
     return RunGraph(**(await run_graph_data(session, run_id)))
+
+
+@router.post(
+    "/runs/{run_id}/preview-model-switch", response_model=PreviewModelSwitchResponse
+)
+async def workspace_preview_model_switch(
+    run_id: uuid.UUID,
+    body: PreviewModelSwitchRequest,
+    current_user: CurrentUser = Depends(resolve_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> PreviewModelSwitchResponse:
+    """Backs the workspace app's "Switch model" screen -- what would carry
+    over before actually executing anything with a different model (spec
+    section 4). No `X-ComputeLayer-Project` header needed: the run's own
+    `project_id` is enough scope for this one-shot evaluation.
+    """
+    run = await _owned_run(session, run_id, current_user)
+    scope = Scope(
+        workspace_id=current_user.workspace_id,
+        project_id=run.project_id,
+        project_slug="",
+        api_key_id=None,
+    )
+    return await build_preview(session, scope, run_id, body.target_model)

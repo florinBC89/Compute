@@ -4,6 +4,7 @@ import TopNav from "@/components/TopNav";
 import RunGraph from "@/components/RunGraph";
 import SavingsCard from "@/components/SavingsCard";
 import BaselineTable from "@/components/BaselineTable";
+import ModelSwitchPreview from "@/components/ModelSwitchPreview";
 import { getRun, getRunGraph, isDemoMode } from "@/lib/api";
 import { tokenEconomics, costEconomics } from "@/lib/compute";
 import { formatCompact, formatUsd, shortId } from "@/lib/format";
@@ -36,6 +37,7 @@ export default async function RunDetailPage({ params }: { params: { id: string }
           <span className="rounded-pill bg-good/10 px-2.5 py-1 text-[11px] font-semibold text-good">
             {run.status}
           </span>
+          <ModelSwitchPreview runId={run.id} />
         </div>
         <p className="mt-1 text-[13.5px] text-ink-secondary">research-agent / production</p>
       </div>
