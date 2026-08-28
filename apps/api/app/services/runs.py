@@ -127,6 +127,7 @@ async def run_graph_data(session: AsyncSession, run_id: uuid.UUID) -> dict:
             else None,
             "previous_latency_ms": source.latency_ms if source else None,
             "reuse_kind": row.reuse_kind,
+            "model": row.model,
         }
 
     return {

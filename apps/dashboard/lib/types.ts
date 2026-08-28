@@ -49,6 +49,7 @@ export interface GraphNode {
   previous_output_tokens: number | null;
   previous_latency_ms: number | null;
   reuse_kind: ReuseKind | null;
+  model: string | null;
 }
 
 export interface GraphEdge {

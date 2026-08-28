@@ -6,7 +6,9 @@ has been sent, and the real pipeline (search_sources -> extract_facts ->
 research_background -> analyze -> write_draft -> fact_check) running a job
 to completion, respecting an externally-set CANCELLED status mid-pipeline,
 and stopping on a cost-cap breach -- with the LLM/search calls mocked (see
-`fake_openai`/`fake_tavily`) so this suite runs free and deterministically.
+`fake_openai`/`fake_anthropic`/`fake_gemini`/`fake_tavily`) so this suite
+runs free and deterministically. Also covers manual per-run provider
+selection (Phase 7) and static per-step Auto-mode routing (Phase 9).
 """
 
 from __future__ import annotations
@@ -250,6 +252,35 @@ async def fake_anthropic(monkeypatch):
         return f"[fake claude completion for: {prompt[:40]}]"
 
     monkeypatch.setattr(anthropic_provider, "complete", _fake_complete)
+    return calls
+
+
+@pytest_asyncio.fixture
+async def fake_gemini(monkeypatch):
+    """Same shape as fake_openai/fake_anthropic, for the gemini provider
+    module -- needed by the Auto-mode routing test (Phase 9), the first
+    test to exercise all three providers in a single pipeline run.
+    """
+    from app.agent.providers import gemini as gemini_provider
+    from computelayer.context import LLMCall, record_llm_call
+
+    calls: list[float] = []
+
+    async def _fake_complete(*, system: str, prompt: str, max_tokens: int = 400) -> str:
+        cost = calls.pop(0) if calls else 0.001
+        record_llm_call(
+            LLMCall(
+                model=gemini_provider.MODEL,
+                provider="gemini",
+                input_tokens=50,
+                output_tokens=50,
+                cost_usd=cost,
+                latency_ms=5,
+            )
+        )
+        return f"[fake gemini completion for: {prompt[:40]}]"
+
+    monkeypatch.setattr(gemini_provider, "complete", _fake_complete)
     return calls
 
 
@@ -567,3 +598,58 @@ async def test_pipeline_falls_back_to_default_provider_for_unrecognized_preferen
         ).mappings().all()
         models_used = {c["model"] for c in computations if c["model"] is not None}
         assert models_used == {"openai/gpt-4o-mini"}
+
+
+@pytest.mark.asyncio
+async def test_auto_mode_routes_different_steps_to_different_providers(
+    workspace_http_client,
+    auth_headers,
+    engine,
+    pipeline_transport_factory,
+    fake_openai,
+    fake_anthropic,
+    fake_gemini,
+    fake_tavily,
+):
+    """model_preference="auto" (Phase 9) must route each LLM step through
+    app.agent.pipeline.AUTO_ROUTING rather than picking one provider for the
+    whole run -- the actual product promise: an Auto task visibly uses more
+    than one model, matching per app.agent.pipeline.AUTO_ROUTING.
+    """
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app import worker
+    from app.agent.pipeline import AUTO_ROUTING, PROVIDER_MODULES
+    from app.models import Computation, Job
+
+    created = await workspace_http_client.post(
+        "/jobs",
+        json={"task_text": "auto-routed task", "model_preference": "auto"},
+        headers=auth_headers,
+    )
+    job_id = uuid.UUID(created.json()["id"])
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    claimed = await worker._claim_next_job(session_factory)
+    await worker._run_one(
+        session_factory, claimed, transport_factory=pipeline_transport_factory
+    )
+
+    async with session_factory() as session:
+        job = await session.get(Job, job_id)
+        assert job.status == "SUCCEEDED"
+
+        computations = (
+            await session.execute(
+                Computation.__table__.select().where(Computation.run_id == job.run_id)
+            )
+        ).mappings().all()
+        model_by_step = {c["name"]: c["model"] for c in computations}
+
+        for step_name, provider_key in AUTO_ROUTING.items():
+            assert model_by_step[step_name] == PROVIDER_MODULES[provider_key].MODEL
+
+        # Not every step landed on the same provider -- the actual point of
+        # Auto mode, and what distinguishes it from the single-provider path
+        # covered by test_pipeline_dispatches_to_the_requested_provider.
+        assert len(set(AUTO_ROUTING.values())) > 1

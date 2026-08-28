@@ -13,10 +13,13 @@ workflow.py` uses for its (fake) topology.
 `search_sources` is the one non-LLM step (a Tavily call, no `model=` --
 search results aren't tied to any model's identity, matching the spec's own
 portability table: "Search results -- Portable -- Reuse when still fresh").
-Everything downstream picks one provider for the whole run based on
-`job.model_preference` (Phase 7) -- manual, whole-run switching; a later
-phase can route individual steps to different providers, but nothing in
-the spec's V1 mockups asks for that yet.
+Every LLM step downstream resolves its own provider via
+`_resolve_step_provider`: an explicit `job.model_preference` ("openai" /
+"anthropic" / "gemini") picks one provider for the whole run, same as
+Phase 7; `model_preference == "auto"` (Phase 9, the spec's own mockup
+default) instead looks each step up in `AUTO_ROUTING`, a static
+task-type -> provider table -- not a learned or dynamic router, matching
+the spec's own framing ("Auto mode should *eventually* select...").
 
 `search_sources` through `analyze` opt into cross-model reuse (portable,
 provider-agnostic research); `write_draft` and `fact_check` do not -- the
@@ -65,6 +68,25 @@ PROVIDER_MODULES = {
     "gemini": gemini_provider,
 }
 DEFAULT_PROVIDER = "openai"
+
+#: The picker value that selects static per-step routing instead of one
+#: provider for the whole run.
+AUTO_PREFERENCE = "auto"
+
+#: step name -> provider key, one entry per LLM step. Static and hardcoded
+#: (not learned/dynamic) per the spec's own framing of Auto mode. Chosen so
+#: an Auto run visibly touches more than one provider and costs less than
+#: running the whole pipeline on the single strongest/priciest provider
+#: (anthropic, today's most expensive of the three integrated models):
+#: extraction and verification are cheap, mechanical tasks that don't need
+#: the strongest model; analysis and the final draft do.
+AUTO_ROUTING: dict[str, str] = {
+    "extract_facts": "openai",  # extraction -> cheapest suitable model
+    "research_background": "gemini",  # context writing -> cheap, solid prose
+    "analyze": "anthropic",  # analysis -> strongest available reasoning
+    "write_draft": "anthropic",  # final writing -> preferred writing model
+    "fact_check": "openai",  # verification -> cheap, suitable for a compare-and-flag task
+}
 
 MAX_TOKENS_PER_STEP = 400
 
@@ -196,6 +218,18 @@ def _resolve_provider(model_preference: str | None) -> tuple[Callable[..., Await
     return module.complete, module.MODEL
 
 
+def _resolve_step_provider(
+    model_preference: str | None, step_name: str
+) -> tuple[Callable[..., Awaitable[str]], str]:
+    """Auto mode looks the step up in AUTO_ROUTING; every other preference
+    (or an unrecognized one, via _resolve_provider's own fallback) uses the
+    same provider for every step, exactly as before Phase 9.
+    """
+    if model_preference == AUTO_PREFERENCE:
+        return _resolve_provider(AUTO_ROUTING[step_name])
+    return _resolve_provider(model_preference)
+
+
 def _llm_step(
     complete_fn: Callable[..., Awaitable[str]], system: str, prompt: str
 ) -> Callable[[], Awaitable[str]]:
@@ -223,7 +257,6 @@ async def run_research_pipeline(
         session_factory, job.workspace_id, job.project_id
     )
     transport = transport_factory(api_key, project_slug) if transport_factory else None
-    complete_fn, model = _resolve_provider(job.model_preference)
 
     await job_control.emit(session_factory, job.id, "STARTED")
 
@@ -252,6 +285,9 @@ async def run_research_pipeline(
                     f"- {item['title']}: {item['content']}" for item in sources.value
                 ) or "(no search results found)"
 
+                extract_facts_provider, extract_facts_model = _resolve_step_provider(
+                    job.model_preference, "extract_facts"
+                )
                 facts = await _run_step(
                     cl,
                     session_factory,
@@ -259,14 +295,17 @@ async def run_research_pipeline(
                     name="extract_facts",
                     inputs={"task": task, "sources": sources},
                     fn=_llm_step(
-                        complete_fn,
+                        extract_facts_provider,
                         EXTRACT_FACTS_SYSTEM,
                         f"Task: {task}\n\nSearch results:\n{sources_text}",
                     ),
                     artifact_type="fact",
-                    model=model,
+                    model=extract_facts_model,
                 )
 
+                research_provider, research_model = _resolve_step_provider(
+                    job.model_preference, "research_background"
+                )
                 research = await _run_step(
                     cl,
                     session_factory,
@@ -274,14 +313,17 @@ async def run_research_pipeline(
                     name="research_background",
                     inputs={"task": task, "facts": facts},
                     fn=_llm_step(
-                        complete_fn,
+                        research_provider,
                         RESEARCH_BACKGROUND_SYSTEM,
                         f"Task: {task}\n\nKnown facts:\n{facts.value}",
                     ),
                     artifact_type="research_note",
-                    model=model,
+                    model=research_model,
                 )
 
+                analyze_provider, analyze_model = _resolve_step_provider(
+                    job.model_preference, "analyze"
+                )
                 analysis = await _run_step(
                     cl,
                     session_factory,
@@ -289,10 +331,10 @@ async def run_research_pipeline(
                     name="analyze",
                     inputs={"task": task, "research": research},
                     fn=_llm_step(
-                        complete_fn, ANALYZE_SYSTEM, f"Task: {task}\n\nBackground:\n{research.value}"
+                        analyze_provider, ANALYZE_SYSTEM, f"Task: {task}\n\nBackground:\n{research.value}"
                     ),
                     artifact_type="analysis",
-                    model=model,
+                    model=analyze_model,
                 )
 
                 # write_draft and fact_check deliberately do NOT set
@@ -306,6 +348,9 @@ async def run_research_pipeline(
                 # Reusing them here would make switching models free but
                 # pointless: identical prose re-labeled under a model that
                 # never actually wrote it.
+                write_draft_provider, write_draft_model = _resolve_step_provider(
+                    job.model_preference, "write_draft"
+                )
                 draft = await _run_step(
                     cl,
                     session_factory,
@@ -313,13 +358,18 @@ async def run_research_pipeline(
                     name="write_draft",
                     inputs={"task": task, "analysis": analysis},
                     fn=_llm_step(
-                        complete_fn, WRITE_DRAFT_SYSTEM, f"Task: {task}\n\nAnalysis:\n{analysis.value}"
+                        write_draft_provider,
+                        WRITE_DRAFT_SYSTEM,
+                        f"Task: {task}\n\nAnalysis:\n{analysis.value}",
                     ),
                     artifact_type="draft",
-                    model=model,
+                    model=write_draft_model,
                     cross_model_reuse=False,
                 )
 
+                fact_check_provider, fact_check_model = _resolve_step_provider(
+                    job.model_preference, "fact_check"
+                )
                 await _run_step(
                     cl,
                     session_factory,
@@ -327,12 +377,12 @@ async def run_research_pipeline(
                     name="fact_check",
                     inputs={"draft": draft, "facts": facts},
                     fn=_llm_step(
-                        complete_fn,
+                        fact_check_provider,
                         FACT_CHECK_SYSTEM,
                         f"Draft:\n{draft.value}\n\nKnown facts:\n{facts.value}",
                     ),
                     artifact_type=None,
-                    model=model,
+                    model=fact_check_model,
                     cross_model_reuse=False,
                 )
 

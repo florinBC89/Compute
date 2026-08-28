@@ -59,6 +59,7 @@ export interface GraphNode {
   input_tokens: number;
   output_tokens: number;
   reuse_kind: string | null;
+  model: string | null;
 }
 
 export interface GraphEdge {

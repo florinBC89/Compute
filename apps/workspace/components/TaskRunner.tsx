@@ -20,10 +20,12 @@ interface JobDetail {
 
 const TERMINAL_TYPES = new Set(["SUCCEEDED", "FAILED", "CANCELLED"]);
 
-// Phase 7: a real 3-way provider choice. "Auto - Best value" (the spec's
-// own default) is Phase 9 -- routing individual steps to different models
-// automatically isn't built yet, so it isn't offered as a choice here.
+// Phase 9: "Auto - Best value" is the spec's own mockup default -- routes
+// each step to a different provider via app.agent.pipeline.AUTO_ROUTING
+// server-side. The explicit 3-way choice from Phase 7 remains for anyone
+// who wants one provider for the whole run.
 const MODEL_OPTIONS: { value: string; label: string }[] = [
+  { value: "auto", label: "Auto - Best value" },
   { value: "openai", label: "GPT-4o mini" },
   { value: "anthropic", label: "Claude Haiku 4.5" },
   { value: "gemini", label: "Gemini 3.6 Flash" },

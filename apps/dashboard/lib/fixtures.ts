@@ -71,6 +71,10 @@ function buildGraph(statusByNode: Record<string, GraphNode["status"]>): RunGraph
       // same rule getPartialReuseExample() documents below: don't fabricate
       // one just to populate a field.
       reuse_kind: null,
+      // This benchmark-derived demo predates the human-workspace pipeline
+      // (V0.2 Phase 4+) that actually records a model per step -- same
+      // "don't fabricate" rule as reuse_kind above.
+      model: null,
     };
   });
   return { nodes, edges: EDGE_DEFS };

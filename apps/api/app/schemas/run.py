@@ -64,6 +64,10 @@ class GraphNode(BaseModel):
     #: "CROSS_MODEL" when this HIT reused a portable artifact across a model
     #: switch (V0.2); None for an ordinary HIT or any other status.
     reuse_kind: str | None = None
+    #: provider/model this step actually ran on -- lets the trace view show
+    #: an Auto-mode task (V0.2 Phase 9) visibly routing different steps to
+    #: different providers.
+    model: str | None = None
 
 
 class GraphEdge(BaseModel):

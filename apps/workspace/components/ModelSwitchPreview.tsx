@@ -12,7 +12,7 @@ export const PROVIDER_MODEL_IDS: Record<string, string> = {
   gemini: "google/gemini-3.6-flash",
 };
 
-const MODEL_LABELS: { value: string; label: string }[] = [
+export const MODEL_LABELS: { value: string; label: string }[] = [
   { value: "openai", label: "GPT-4o mini" },
   { value: "anthropic", label: "Claude Haiku 4.5" },
   { value: "gemini", label: "Gemini 3.6 Flash" },

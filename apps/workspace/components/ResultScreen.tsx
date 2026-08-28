@@ -2,7 +2,14 @@
 
 import { useEffect, useState } from "react";
 import type { GraphNode, RunSummary } from "@/lib/api";
-import ModelSwitchPreview from "./ModelSwitchPreview";
+import ModelSwitchPreview, { MODEL_LABELS, PROVIDER_MODEL_IDS } from "./ModelSwitchPreview";
+
+//: full model id (what GraphNode.model actually holds) -> short display
+//: label, so the trace view reads "GPT-4o mini" rather than the raw
+//: "openai/gpt-4o-mini" pricing-table key.
+const MODEL_ID_LABELS: Record<string, string> = Object.fromEntries(
+  MODEL_LABELS.map((option) => [PROVIDER_MODEL_IDS[option.value], option.label])
+);
 
 function formatUsd(value: number): string {
   return `$${value.toFixed(value < 0.01 ? 4 : 2)}`;
@@ -132,6 +139,11 @@ export default function ResultScreen({
                   }`}
                 />
                 {node.name}
+                {node.model ? (
+                  <span className="rounded-pill bg-page px-1.5 py-0.5 text-[10px] text-ink-muted">
+                    {MODEL_ID_LABELS[node.model] ?? node.model}
+                  </span>
+                ) : null}
                 {node.reuse_kind === "CROSS_MODEL" ? (
                   <span className="rounded-pill bg-violet/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-violet">
                     cross-model
