@@ -6,6 +6,10 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+ArtifactType = Literal[
+    "source", "fact", "structured_data", "research_note", "analysis", "draft", "citation"
+]
+
 
 class DependencyPayload(BaseModel):
     key: str
@@ -33,6 +37,14 @@ class LookupRequestBody(BaseModel):
     force: bool = False
     #: Sent so a recorded cache hit can carry its edges into the run graph.
     dependencies: list[DependencyPayload] = Field(default_factory=list)
+    #: V0.2 cross-model reuse -- see computelayer.semantics.upgrade_for_cross_model.
+    cross_model_reuse: bool = False
+    artifact_type: ArtifactType | None = None
+    model_agnostic_fingerprint: str = ""
+    #: The model this call actually requested -- see LookupRequest.model in
+    #: computelayer.semantics for why this needs to travel separately from
+    #: fingerprint/model_agnostic_fingerprint.
+    model: str | None = None
 
 
 class LookupHitComputation(BaseModel):
@@ -51,6 +63,9 @@ class LookupResponse(BaseModel):
     computation: LookupHitComputation | None = None
     previous_computation_id: str | None = None
     reason: str = ""
+    #: "CROSS_MODEL" when this HIT came from a portable artifact reused
+    #: across a model switch; None for an ordinary HIT or any other status.
+    reuse_kind: Literal["CROSS_MODEL"] | None = None
 
 
 class StartRequestBody(BaseModel):
@@ -65,6 +80,8 @@ class StartRequestBody(BaseModel):
     ttl_seconds: int | None = None
     reusable: bool = True
     metadata: dict[str, Any] = Field(default_factory=dict)
+    artifact_type: ArtifactType | None = None
+    model_agnostic_fingerprint: str | None = None
 
 
 class StartResponse(BaseModel):

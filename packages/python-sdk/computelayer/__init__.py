@@ -39,7 +39,14 @@ from computelayer.hashing import (
 )
 from computelayer.result import CacheStatus, ComputationStatus, ComputeResult
 from computelayer.secrets import Secret, secret
-from computelayer.semantics import StoredComputation, classify, is_reusable
+from computelayer.semantics import (
+    DEFAULT_PORTABLE_ARTIFACT_TYPES,
+    LookupRequest,
+    StoredComputation,
+    classify,
+    is_reusable,
+    upgrade_for_cross_model,
+)
 from computelayer.serialization import (
     SPEC_VERSION,
     CanonicalizationError,
@@ -75,8 +82,11 @@ __all__ = [
     "build_model_agnostic_fingerprint",
     "get_code_version",
     "StoredComputation",
+    "LookupRequest",
     "classify",
     "is_reusable",
+    "upgrade_for_cross_model",
+    "DEFAULT_PORTABLE_ARTIFACT_TYPES",
     "ExecutionMetrics",
     "LLMCall",
     "record_llm_call",

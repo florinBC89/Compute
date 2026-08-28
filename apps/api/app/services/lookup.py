@@ -20,17 +20,25 @@ from computelayer.semantics import (
     LookupOutcome,
     StoredComputation,
     classify,
+    upgrade_for_cross_model,
 )
 from sqlalchemy import select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Computation, ComputationDependency, ComputationEvent
+from app.services.artifact_policy import resolve_portability
 from app.services.scope import Scope
 
-__all__ = ["find_exact", "find_previous", "resolve_lookup", "record_hit_observation"]
+__all__ = [
+    "find_exact",
+    "find_previous",
+    "resolve_lookup",
+    "record_hit_observation",
+    "to_stored",
+]
 
 
-def _to_stored(row: Computation) -> StoredComputation:
+def to_stored(row: Computation) -> StoredComputation:
     return StoredComputation(
         id=str(row.id),
         name=row.name,
@@ -46,6 +54,9 @@ def _to_stored(row: Computation) -> StoredComputation:
         reusable=bool(row.reusable),
         expires_at=row.expires_at,
         created_at=row.created_at,
+        model=row.model,
+        artifact_type=row.artifact_type,
+        model_agnostic_fingerprint=row.model_agnostic_fingerprint,
     )
 
 
@@ -110,19 +121,43 @@ async def resolve_lookup(
     scope: Scope,
     request: LookupRequest,
     now: _dt.datetime | None = None,
-) -> tuple[LookupOutcome, Computation | None]:
-    """Return the decision plus the ORM row it was based on (if any)."""
+) -> tuple[LookupOutcome, Computation | None, str | None]:
+    """Return the decision, the ORM row it was based on, and the reuse kind.
+
+    ``reuse_kind`` is ``None`` for an ordinary same-fingerprint HIT and
+    ``"CROSS_MODEL"`` when the HIT only exists because
+    :func:`~computelayer.semantics.upgrade_for_cross_model` upgraded a STALE
+    (§V0.2) -- in which case ``source`` is ``previous_row``, not
+    ``exact_row``, since there was no exact fingerprint match to begin with.
+    """
     exact_row = await find_exact(session, scope, request.fingerprint)
     previous_row = await find_previous(session, scope, request.logical_key)
+    previous_stored = to_stored(previous_row) if previous_row is not None else None
 
     outcome = classify(
         request,
-        _to_stored(exact_row) if exact_row is not None else None,
-        _to_stored(previous_row) if previous_row is not None else None,
+        to_stored(exact_row) if exact_row is not None else None,
+        previous_stored,
         now,
     )
-    source = exact_row if outcome.status == "HIT" else None
-    return outcome, source
+
+    is_portable = await resolve_portability(
+        session, scope, previous_stored.artifact_type if previous_stored else None
+    )
+    outcome = upgrade_for_cross_model(
+        outcome,
+        request,
+        previous_stored,
+        is_portable=is_portable,
+        now=now,
+        max_age_seconds=request.ttl_seconds,
+    )
+
+    if outcome.status != "HIT" or outcome.computation is None:
+        return outcome, None, None
+    if exact_row is not None and outcome.computation.id == str(exact_row.id):
+        return outcome, exact_row, None
+    return outcome, previous_row, "CROSS_MODEL"
 
 
 async def record_hit_observation(
@@ -131,6 +166,7 @@ async def record_hit_observation(
     request: LookupRequest,
     source: Computation,
     dependencies: list[dict[str, Any]] | None,
+    reuse_kind: str | None = None,
 ) -> Computation:
     """Write a node representing this run's reuse of ``source``.
 
@@ -149,10 +185,15 @@ async def record_hit_observation(
         fingerprint=request.fingerprint,
         status="SUCCEEDED",
         cache_status="HIT",
+        reuse_kind=reuse_kind,
         input_json=None,
         output_json=None,
         output_hash=source.output_hash,
-        model=source.model,
+        # The requested model when the caller sent one -- for an ordinary
+        # HIT this is provably equal to source.model anyway (the fingerprint
+        # match already guarantees it), but for a CROSS_MODEL HIT it's what
+        # actually differs and what /explain needs to show.
+        model=request.model or source.model,
         provider=source.provider,
         prompt_hash=source.prompt_hash,
         tool_schema_hash=source.tool_schema_hash,
@@ -189,7 +230,10 @@ async def record_hit_observation(
         ComputationEvent(
             computation_id=observation.id,
             event_type="CACHE_HIT",
-            payload={"source_computation_id": str(source.id)},
+            payload={
+                "source_computation_id": str(source.id),
+                "reuse_kind": reuse_kind,
+            },
         )
     )
     return observation

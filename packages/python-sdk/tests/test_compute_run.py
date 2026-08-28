@@ -119,6 +119,48 @@ class BasicLifecycleTests(ComputeRunTestCase):
         second = await call("openai/gpt-4o-mini")
         self.assertEqual(second.cache_status, CacheStatus.STALE)
 
+    async def test_changed_model_is_reusable_when_opted_in_and_portable(self) -> None:
+        # Sibling of test_changed_model_is_stale: same model switch, but this
+        # time the caller classifies the work as a portable artifact type and
+        # opts into cross_model_reuse on the second call. Default behavior
+        # (the test above) is unaffected -- this only fires when both
+        # conditions are met.
+        async def call(model: str, *, cross_model_reuse: bool = False):
+            return await self.cl.compute.run(
+                name="fact_extraction",
+                inputs={"ticker": "NVDA"},
+                model=model,
+                artifact_type="fact",
+                cross_model_reuse=cross_model_reuse,
+                fn=lambda: {"a": 1},
+            )
+
+        first = await call("openai/gpt-4o")
+        second = await call("anthropic/claude-3-5-sonnet", cross_model_reuse=True)
+
+        self.assertEqual(first.cache_status, CacheStatus.MISS)
+        self.assertEqual(second.cache_status, CacheStatus.HIT)
+        self.assertEqual(second.reuse_kind, "CROSS_MODEL")
+        self.assertEqual(second.value, {"a": 1})
+
+    async def test_non_portable_artifact_type_still_goes_stale(self) -> None:
+        # cross_model_reuse=True alone isn't enough -- the artifact type must
+        # also be portable per policy. "hidden_reasoning" isn't one of the
+        # seven recognized types, so it's never eligible.
+        async def call(model: str):
+            return await self.cl.compute.run(
+                name="internal_reasoning",
+                inputs={"ticker": "NVDA"},
+                model=model,
+                artifact_type="hidden_reasoning",
+                cross_model_reuse=True,
+                fn=lambda: {"a": 1},
+            )
+
+        await call("openai/gpt-4o")
+        second = await call("anthropic/claude-3-5-sonnet")
+        self.assertEqual(second.cache_status, CacheStatus.STALE)
+
     async def test_forced_execution_bypasses_the_cache(self) -> None:
         counter = Counter()
 

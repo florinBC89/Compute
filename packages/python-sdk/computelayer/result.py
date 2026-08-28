@@ -49,6 +49,10 @@ class ComputeResult:
     saved_usd: float = 0.0
     latency_ms: int = 0
     metadata: dict[str, Any] = field(default_factory=dict)
+    #: "CROSS_MODEL" when this HIT came from a portable artifact reused
+    #: across a model switch (V0.2); None for an ordinary same-model HIT or
+    #: any non-HIT status.
+    reuse_kind: str | None = None
 
     @property
     def reused(self) -> bool:

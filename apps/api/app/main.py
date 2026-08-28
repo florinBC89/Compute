@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_settings
 from app.db import dispose_engine
-from app.routes import computations, metrics, resources, runs
+from app.routes import artifact_policies, computations, metrics, resources, runs
 from app.services.locks import close_redis, get_redis
 
 logger = logging.getLogger("computelayer.api")
@@ -52,6 +52,7 @@ app.include_router(computations.router, prefix="/v1")
 app.include_router(resources.router, prefix="/v1")
 app.include_router(runs.router, prefix="/v1")
 app.include_router(metrics.router, prefix="/v1")
+app.include_router(artifact_policies.router, prefix="/v1")
 
 
 @app.get("/health", tags=["ops"])

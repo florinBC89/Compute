@@ -180,6 +180,28 @@ async def _changed_output_invalidates(cl: ComputeLayer, trace: Trace) -> None:
     await pipeline("v3", 200)
 
 
+async def _cross_model_reuse(cl: ComputeLayer, trace: Trace) -> None:
+    """V0.2: a portable artifact survives a model switch when opted in."""
+    first = await cl.compute.run(
+        name="fact_extraction",
+        inputs={"ticker": "NVDA"},
+        model="openai/gpt-4o",
+        artifact_type="fact",
+        fn=_counting(trace, {"revenue": 100}),
+    )
+    trace.statuses.append(first.cache_status)
+
+    second = await cl.compute.run(
+        name="fact_extraction",
+        inputs={"ticker": "NVDA"},
+        model="anthropic/claude-3-5-sonnet",
+        artifact_type="fact",
+        cross_model_reuse=True,
+        fn=_counting(trace, {"revenue": 100}),
+    )
+    trace.statuses.append(second.cache_status)
+
+
 async def _reusable_false(cl: ComputeLayer, trace: Trace) -> None:
     for _ in range(2):
         result = await cl.compute.run(
@@ -250,5 +272,16 @@ SCENARIOS: list[Scenario] = [
         body=_reusable_false,
         expected_statuses=("MISS", "STALE"),
         expected_executions=2,
+    ),
+    Scenario(
+        name="cross_model_reuse",
+        description=(
+            "V0.2: a portable artifact_type with an unchanged "
+            "model-agnostic fingerprint is reused across a model switch "
+            "when the caller opts in via cross_model_reuse=True."
+        ),
+        body=_cross_model_reuse,
+        expected_statuses=("MISS", "HIT"),
+        expected_executions=1,
     ),
 ]

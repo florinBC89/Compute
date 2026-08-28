@@ -47,8 +47,12 @@ async def lookup(
         run_id=body.run_id,
         ttl_seconds=body.ttl_seconds,
         force=body.force,
+        cross_model_reuse=body.cross_model_reuse,
+        artifact_type=body.artifact_type,
+        model_agnostic_fingerprint=body.model_agnostic_fingerprint,
+        model=body.model,
     )
-    outcome, source = await resolve_lookup(session, scope, request)
+    outcome, source, reuse_kind = await resolve_lookup(session, scope, request)
 
     if outcome.status != "HIT" or source is None:
         return LookupResponse(
@@ -63,6 +67,7 @@ async def lookup(
         request,
         source,
         [dependency.model_dump() for dependency in body.dependencies],
+        reuse_kind,
     )
 
     return LookupResponse(
@@ -78,6 +83,7 @@ async def lookup(
             "created_at": source.created_at.isoformat() if source.created_at else None,
         },
         reason=outcome.reason,
+        reuse_kind=reuse_kind,
     )
 
 
@@ -113,6 +119,8 @@ async def start(
         reusable=body.reusable,
         meta=body.metadata,
         expires_at=expires_at,
+        artifact_type=body.artifact_type,
+        model_agnostic_fingerprint=body.model_agnostic_fingerprint,
     )
     session.add(computation)
     await session.flush()

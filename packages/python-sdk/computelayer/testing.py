@@ -22,9 +22,11 @@ from typing import Any
 
 from computelayer.result import CacheStatus, ComputationStatus
 from computelayer.semantics import (
+    DEFAULT_PORTABLE_ARTIFACT_TYPES,
     LookupRequest,
     StoredComputation,
     classify,
+    upgrade_for_cross_model,
     utcnow,
 )
 
@@ -85,6 +87,9 @@ class LocalBackend:
             reusable=row.get("reusable", True),
             expires_at=row.get("expires_at"),
             created_at=row["created_at"],
+            model=row.get("model"),
+            artifact_type=row.get("artifact_type"),
+            model_agnostic_fingerprint=row.get("model_agnostic_fingerprint"),
         )
 
     def _rows_newest_first(self) -> list[dict[str, Any]]:
@@ -136,12 +141,26 @@ class LocalBackend:
             run_id=payload.get("run_id"),
             ttl_seconds=payload.get("ttl_seconds"),
             force=bool(payload.get("force", False)),
+            cross_model_reuse=bool(payload.get("cross_model_reuse", False)),
+            artifact_type=payload.get("artifact_type"),
+            model_agnostic_fingerprint=payload.get("model_agnostic_fingerprint", ""),
+            model=payload.get("model"),
         )
         now = self.now()
 
         exact = self._find_exact(request.fingerprint)
         previous = self._find_previous(request.logical_key)
         outcome = classify(request, exact, previous, now)
+        outcome = upgrade_for_cross_model(
+            outcome,
+            request,
+            previous,
+            is_portable=(previous.artifact_type in DEFAULT_PORTABLE_ARTIFACT_TYPES)
+            if previous is not None
+            else False,
+            now=now,
+            max_age_seconds=request.ttl_seconds,
+        )
 
         if outcome.status != CacheStatus.HIT:
             return {
@@ -152,6 +171,9 @@ class LocalBackend:
 
         source = outcome.computation
         assert source is not None
+        # A same-model HIT resolves an exact fingerprint match; anything else
+        # that reached HIT only got here via upgrade_for_cross_model.
+        reuse_kind = None if source.fingerprint == request.fingerprint else "CROSS_MODEL"
 
         # Record the reuse as a node of this run so /runs/{id} and the graph
         # can report it. The observation row is not itself a reuse source.
@@ -164,6 +186,8 @@ class LocalBackend:
             fingerprint=request.fingerprint,
             status=ComputationStatus.SUCCEEDED,
             cache_status=CacheStatus.HIT,
+            reuse_kind=reuse_kind,
+            model=request.model or source.model,
             input_json=None,
             output_json=None,
             output_hash=source.output_hash,
@@ -181,10 +205,16 @@ class LocalBackend:
         )
         self.dependencies[observation_id] = list(payload.get("dependencies") or [])
         self._event(observation_id, "LOOKUP_STARTED", fingerprint=request.fingerprint)
-        self._event(observation_id, "CACHE_HIT", source_computation_id=source.id)
+        self._event(
+            observation_id,
+            "CACHE_HIT",
+            source_computation_id=source.id,
+            reuse_kind=reuse_kind,
+        )
 
         return {
             "status": CacheStatus.HIT,
+            "reuse_kind": reuse_kind,
             "computation": {
                 "id": observation_id,
                 "source_computation_id": source.id,
@@ -225,6 +255,9 @@ class LocalBackend:
             prompt_hash=execution.get("prompt_hash"),
             tool_schema_hash=execution.get("tool_schema_hash"),
             code_version=execution.get("code_version"),
+            artifact_type=payload.get("artifact_type"),
+            model_agnostic_fingerprint=payload.get("model_agnostic_fingerprint"),
+            reuse_kind=None,
             cost_usd=0.0,
             saved_usd=0.0,
             input_tokens=0,
@@ -371,6 +404,7 @@ class LocalBackend:
                 "latency_ms": row.get("latency_ms"),
                 "input_tokens": row.get("input_tokens", 0),
                 "output_tokens": row.get("output_tokens", 0),
+                "reuse_kind": row.get("reuse_kind"),
             }
             for row in rows
         ]

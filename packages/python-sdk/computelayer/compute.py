@@ -18,6 +18,7 @@ from computelayer.errors import ComputeLayerError
 from computelayer.hashing import (
     build_fingerprint,
     build_logical_key,
+    build_model_agnostic_fingerprint,
     dedupe_dependencies,
     get_code_version,
     hash_json,
@@ -116,7 +117,23 @@ class Compute:
         reusable: bool = True,
         metadata: dict[str, Any] | None = None,
         run_id: str | None = None,
+        artifact_type: str | None = None,
+        cross_model_reuse: bool = False,
     ) -> ComputeResult:
+        """See module docstring. ``artifact_type``/``cross_model_reuse`` are
+        V0.2 additions for reuse across a model switch:
+
+        ``artifact_type`` classifies this computation (source, fact,
+        structured_data, research_note, analysis, draft, citation) so a
+        *later* call can consider it as a cross-model source. It has no
+        effect on this call's own lookup.
+
+        ``cross_model_reuse=True`` opts *this* lookup into treating a
+        portable, model-agnostic-fingerprint-matching prior computation as a
+        HIT even though its ``model`` differs. Default is False: unless a
+        caller explicitly asks for it, a model change behaves exactly as
+        before this feature existed.
+        """
         client = self._client
         transport = client.transport
 
@@ -137,6 +154,17 @@ class Compute:
             tool_schema_hash=tool_schema_hash,
             code_version=code_version,
         )
+        # Always computed and persisted, whether or not *this* call opts into
+        # cross_model_reuse -- that's what lets any call become a future
+        # cross-model source.
+        model_agnostic_fingerprint = build_model_agnostic_fingerprint(
+            name=name,
+            inputs=inputs,
+            dependencies=all_dependencies,
+            prompt_hash=prompt_hash,
+            tool_schema_hash=tool_schema_hash,
+            code_version=code_version,
+        )
 
         run_id = run_id or current_run_id()
         dependency_payload = [d.as_payload() for d in all_dependencies]
@@ -149,6 +177,10 @@ class Compute:
             "ttl_seconds": ttl,
             "force": force,
             "dependencies": dependency_payload,
+            "cross_model_reuse": cross_model_reuse,
+            "artifact_type": artifact_type,
+            "model_agnostic_fingerprint": model_agnostic_fingerprint,
+            "model": model,
         }
 
         cache_status = CacheStatus.FORCED if force else CacheStatus.MISS
@@ -212,6 +244,8 @@ class Compute:
             "ttl_seconds": ttl,
             "reusable": reusable,
             "metadata": metadata or {},
+            "artifact_type": artifact_type,
+            "model_agnostic_fingerprint": model_agnostic_fingerprint,
             "execution": {
                 "model": model,
                 "prompt_hash": prompt_hash,
@@ -424,4 +458,5 @@ def _result_from_hit(
         saved_usd=float(payload.get("cost_usd") or 0.0),
         latency_ms=0,
         metadata={"reused_from": payload.get("source_computation_id")},
+        reuse_kind=lookup.get("reuse_kind"),
     )

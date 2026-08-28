@@ -22,7 +22,35 @@ __all__ = [
     "utcnow",
     "is_reusable",
     "classify",
+    "upgrade_for_cross_model",
+    "DEFAULT_PORTABLE_ARTIFACT_TYPES",
 ]
+
+#: Fallback portability defaults for V0.2 cross-model reuse, used when no
+#: policy row overrides them. ``LocalBackend`` always uses this directly (it
+#: has no real policy store); the API only falls back to it when neither a
+#: project- nor workspace-level ``artifact_type_policies`` row exists (see
+#: ``apps/api/app/services/artifact_policy.py``).
+#:
+#: All seven artifact types default to portable. This isn't a claim that
+#: model switches never affect a "draft" or "analysis" -- it's that (a) a
+#: workspace/project can dial any type down to non-portable via the policy
+#: table, (b) reuse additionally requires the model-agnostic fingerprint to
+#: match, i.e. nothing about the inputs, dependencies, prompt or code
+#: actually changed, and (c) it's opt-in per call via
+#: ``cross_model_reuse=True``, so a caller decides per artifact whether to
+#: even attempt it -- these three gates matter more than the taxonomy label.
+DEFAULT_PORTABLE_ARTIFACT_TYPES: frozenset[str] = frozenset(
+    {
+        "source",
+        "fact",
+        "structured_data",
+        "research_note",
+        "analysis",
+        "draft",
+        "citation",
+    }
+)
 
 
 def utcnow() -> _dt.datetime:
@@ -56,6 +84,12 @@ class StoredComputation:
     expires_at: _dt.datetime | None = None
     created_at: _dt.datetime = field(default_factory=utcnow)
 
+    # V0.2 cross-model reuse. Optional and default-None so the eight pinned
+    # conformance scenarios, which never set these, are unaffected.
+    model: str | None = None
+    artifact_type: str | None = None
+    model_agnostic_fingerprint: str | None = None
+
 
 @dataclass
 class LookupRequest:
@@ -67,6 +101,18 @@ class LookupRequest:
     run_id: str | None = None
     ttl_seconds: int | None = None
     force: bool = False
+
+    # V0.2 cross-model reuse -- additive, defaults preserve existing callers.
+    cross_model_reuse: bool = False
+    artifact_type: str | None = None
+    model_agnostic_fingerprint: str = ""
+    #: The model this call actually asked for. Only `fingerprint` (which
+    #: bakes model in) and `model_agnostic_fingerprint` (which never does)
+    #: travelled to the server before this -- neither lets a HIT observation
+    #: row record what was *requested* when it differs from the reused
+    #: source, which is exactly what a cross-model HIT needs to show in
+    #: /explain ("model changed: gpt-4o -> claude-3-5-sonnet").
+    model: str | None = None
 
 
 @dataclass
@@ -151,4 +197,52 @@ def classify(
     return LookupOutcome(
         status=CacheStatus.MISS,
         reason="no previous computation with this logical key",
+    )
+
+
+def upgrade_for_cross_model(
+    outcome: LookupOutcome,
+    request: LookupRequest,
+    previous: StoredComputation | None,
+    *,
+    is_portable: bool,
+    now: _dt.datetime | None = None,
+    max_age_seconds: int | None = None,
+) -> LookupOutcome:
+    """V0.2: upgrade a STALE outcome to HIT when only the model changed.
+
+    Deliberately separate from :func:`classify` rather than folded into it:
+    ``classify``'s default output is pinned by eight conformance scenarios run
+    against both the real API and :mod:`computelayer.testing`'s in-memory
+    backend, and a model switch changing the default outcome would silently
+    break that contract. This function only ever *upgrades* STALE to HIT, and
+    only when the caller explicitly opts in via ``request.cross_model_reuse``
+    -- callers who never pass it see byte-for-byte the same behavior as
+    before this function existed.
+
+    ``is_portable`` is resolved by the caller (the real API via a DB-backed
+    policy table; :class:`~computelayer.testing.LocalBackend` via a hardcoded
+    default map) so this function -- like the rest of this module -- stays
+    free of any I/O.
+
+    A cross-model reuse is recorded as an ordinary HIT, not a new
+    ``CacheStatus`` value: no compute happened, which is exactly what HIT
+    means. The caller is expected to additionally record *why* (e.g. a
+    ``reuse_kind="CROSS_MODEL"`` column) outside of this dataclass.
+    """
+    if outcome.status != CacheStatus.STALE or not request.cross_model_reuse:
+        return outcome
+    if previous is None or not is_portable:
+        return outcome
+    if not previous.model_agnostic_fingerprint:
+        return outcome
+    if previous.model_agnostic_fingerprint != request.model_agnostic_fingerprint:
+        return outcome
+    if not is_reusable(previous, now, max_age_seconds):
+        return outcome
+    return LookupOutcome(
+        status=CacheStatus.HIT,
+        computation=previous,
+        reason=f"cross-model reuse: portable {previous.artifact_type} artifact, "
+        "only the model changed",
     )
