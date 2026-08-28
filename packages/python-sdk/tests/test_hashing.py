@@ -5,7 +5,13 @@ from __future__ import annotations
 import os
 import unittest
 
-from computelayer import Dependency, build_fingerprint, build_logical_key, dep
+from computelayer import (
+    Dependency,
+    build_fingerprint,
+    build_logical_key,
+    build_model_agnostic_fingerprint,
+    dep,
+)
 from computelayer.errors import DuplicateDependencyError
 from computelayer.hashing import (
     CODE_VERSION_ENV,
@@ -94,6 +100,65 @@ class FingerprintDifferenceTests(unittest.TestCase):
 
     def test_absent_prompt_differs_from_empty_prompt(self) -> None:
         self.assertNotEqual(fingerprint(), fingerprint(prompt_hash=hash_text("")))
+
+
+def model_agnostic_fingerprint(**overrides) -> str:
+    payload = {**BASE, **overrides}
+    return build_model_agnostic_fingerprint(**payload)
+
+
+class ModelAgnosticFingerprintTests(unittest.TestCase):
+    """Cross-model reuse: same value regardless of which model ran it."""
+
+    def test_equals_fingerprint_called_with_no_model(self) -> None:
+        self.assertEqual(model_agnostic_fingerprint(), fingerprint(model=None))
+
+    def test_invariant_across_models_that_would_differ_by_fingerprint(self) -> None:
+        # The whole point: build_fingerprint moves when model changes, but
+        # build_model_agnostic_fingerprint doesn't take a model at all, so
+        # every call with the same inputs/dependencies/execution params
+        # collapses to one value -- that's what makes it useful as an
+        # equality check for "only the model changed."
+        self.assertNotEqual(
+            fingerprint(model="openai/gpt-4o"),
+            fingerprint(model="anthropic/claude-3-5-sonnet"),
+        )
+        self.assertEqual(
+            model_agnostic_fingerprint(), model_agnostic_fingerprint()
+        )
+
+    def test_different_from_a_model_specific_fingerprint(self) -> None:
+        self.assertNotEqual(
+            model_agnostic_fingerprint(), fingerprint(model="openai/gpt-4o")
+        )
+
+    def test_sensitive_to_inputs(self) -> None:
+        self.assertNotEqual(
+            model_agnostic_fingerprint(),
+            model_agnostic_fingerprint(inputs={"ticker": "AMD", "period": "FY2025"}),
+        )
+
+    def test_sensitive_to_dependency_version(self) -> None:
+        self.assertNotEqual(
+            model_agnostic_fingerprint(
+                dependencies=[dep("financials:NVDA", version="943fa1")]
+            ),
+            model_agnostic_fingerprint(
+                dependencies=[dep("financials:NVDA", version="03ec22")]
+            ),
+        )
+
+    def test_sensitive_to_prompt(self) -> None:
+        self.assertNotEqual(
+            model_agnostic_fingerprint(prompt_hash=hash_text("prompt A")),
+            model_agnostic_fingerprint(prompt_hash=hash_text("prompt B")),
+        )
+
+    def test_sensitive_to_code_version(self) -> None:
+        self.assertNotEqual(
+            model_agnostic_fingerprint(code_version="sha-a"),
+            model_agnostic_fingerprint(code_version="sha-b"),
+        )
 
 
 class DependencyHelperTests(unittest.TestCase):

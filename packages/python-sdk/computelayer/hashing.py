@@ -21,6 +21,7 @@ __all__ = [
     "hash_text",
     "hash_json",
     "build_fingerprint",
+    "build_model_agnostic_fingerprint",
     "build_logical_key",
     "get_code_version",
     "dedupe_dependencies",
@@ -148,6 +149,35 @@ def build_fingerprint(
         },
     }
     return sha256_hex(canonical_json(payload))
+
+
+def build_model_agnostic_fingerprint(
+    *,
+    name: str,
+    inputs: Any,
+    dependencies: Sequence[Dependency] = (),
+    prompt_hash: str | None = None,
+    tool_schema_hash: str | None = None,
+    code_version: str | None = None,
+) -> str:
+    """Answer: *is this exact computation reusable, ignoring which model ran it?*
+
+    Identical to :func:`build_fingerprint` except ``model`` is never included
+    in the hashed payload. Used by cross-model reuse (V0.2): two computations
+    with the same inputs and dependencies but different models produce the
+    same value here, so equality is a cheap way to confirm nothing except the
+    model changed -- including catching a dependency change that a bare
+    field-by-field comparison of execution parameters would miss.
+    """
+    return build_fingerprint(
+        name=name,
+        inputs=inputs,
+        dependencies=dependencies,
+        model=None,
+        prompt_hash=prompt_hash,
+        tool_schema_hash=tool_schema_hash,
+        code_version=code_version,
+    )
 
 
 # --------------------------------------------------------------------------

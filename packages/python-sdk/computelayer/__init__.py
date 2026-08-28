@@ -30,6 +30,7 @@ from computelayer.errors import (
 from computelayer.hashing import (
     build_fingerprint,
     build_logical_key,
+    build_model_agnostic_fingerprint,
     get_code_version,
     hash_json,
     hash_text,
@@ -71,6 +72,7 @@ __all__ = [
     "hash_json",
     "build_fingerprint",
     "build_logical_key",
+    "build_model_agnostic_fingerprint",
     "get_code_version",
     "StoredComputation",
     "classify",
