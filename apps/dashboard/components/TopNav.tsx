@@ -6,6 +6,8 @@ import { usePathname } from "next/navigation";
 const NAV_LINKS = [
   { href: "/", label: "Overview" },
   { href: "/runs", label: "Runs" },
+  { href: "/projects", label: "Projects" },
+  { href: "/usage", label: "Usage" },
 ];
 
 // demoMode is passed in rather than imported from lib/api: this is a client

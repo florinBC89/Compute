@@ -1,4 +1,13 @@
-import type { GraphEdge, GraphNode, ProjectMetrics, RunGraph, RunListItem } from "./types";
+import type {
+  ArtifactListItem,
+  ArtifactType,
+  GraphEdge,
+  GraphNode,
+  ProjectMetrics,
+  RunGraph,
+  RunListItem,
+  UsageBreakdownItem,
+} from "./types";
 
 // Demo data shaped exactly like the research-agent benchmark (spec §42-§46):
 // the same NVDA equity-research workflow the benchmark itself runs, replayed
@@ -57,6 +66,10 @@ function buildGraph(statusByNode: Record<string, GraphNode["status"]>): RunGraph
       previous_input_tokens: isReused ? def.inTok : null,
       previous_output_tokens: isReused ? def.outTok : null,
       previous_latency_ms: isReused ? def.latency : null,
+      // No demo scenario models a real cross-model reuse -- following the
+      // same rule getPartialReuseExample() documents below: don't fabricate
+      // one just to populate a field.
+      reuse_kind: null,
     };
   });
   return { nodes, edges: EDGE_DEFS };
@@ -189,5 +202,67 @@ export function demoMetrics(): ProjectMetrics {
     tokens_consumed: inTok + outTok,
     tokens_avoided: tokensAvoided,
     llm_calls_avoided: llmCallsAvoided,
+    // No demo scenario models a real cross-model reuse, so this stays 0
+    // rather than a fabricated figure -- see the reuse_kind comment above.
+    cross_model_saved_usd: 0,
+    cross_model_tokens_avoided: 0,
   };
+}
+
+// V0.2: artifact type per node, for the Projects page. Not every node is an
+// LLM call (see NODE_DEFS.isLlmCall) -- only those have a model.
+const ARTIFACT_TYPE_BY_NODE: Record<string, ArtifactType> = {
+  company_profile: "source",
+  financials: "structured_data",
+  competitors: "source",
+  news: "source",
+  overview: "research_note",
+  financial_analysis: "analysis",
+  competitive_analysis: "analysis",
+  news_analysis: "analysis",
+  valuation: "analysis",
+  final_report: "draft",
+};
+
+export function demoArtifacts(): ArtifactListItem[] {
+  const now = Date.now();
+  return NODE_DEFS.map((def, index) => ({
+    logical_key: `${def.id}:NVDA`,
+    name: def.name,
+    artifact_type: ARTIFACT_TYPE_BY_NODE[def.id] ?? null,
+    model: def.isLlmCall ? "openai/gpt-4o" : null,
+    reusable: true,
+    cost_usd: def.cost,
+    created_at: new Date(now - (index + 1) * 3600_000).toISOString(),
+  }));
+}
+
+// Derived from the same DEMO_RUN_GRAPHS every other fixture uses, rather
+// than a parallel invented dataset: real executions only (a HIT's cost is
+// zeroed by design -- its cost is recorded as avoided, on the source row).
+export function demoUsage(): UsageBreakdownItem[] {
+  const totals = new Map<string, UsageBreakdownItem>();
+  for (const graph of Object.values(DEMO_RUN_GRAPHS)) {
+    for (const node of graph.nodes) {
+      if (node.status === "HIT") continue;
+      const model = LLM_NODE_IDS.has(node.id) ? "openai/gpt-4o" : null;
+      const key = `${model ?? ""}:${node.name}`;
+      const existing = totals.get(key) ?? {
+        model,
+        name: node.name,
+        computations: 0,
+        cost_usd: 0,
+        input_tokens: 0,
+        output_tokens: 0,
+      };
+      existing.computations += 1;
+      existing.cost_usd += node.cost_usd;
+      existing.input_tokens += node.input_tokens;
+      existing.output_tokens += node.output_tokens;
+      totals.set(key, existing);
+    }
+  }
+  return [...totals.values()]
+    .map((item) => ({ ...item, cost_usd: Number(item.cost_usd.toFixed(4)) }))
+    .sort((a, b) => b.cost_usd - a.cost_usd);
 }

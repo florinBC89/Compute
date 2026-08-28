@@ -1,4 +1,4 @@
-import type { CacheStatus } from "@/lib/types";
+import type { CacheStatus, ReuseKind } from "@/lib/types";
 
 // Product language (per the Accurate spec): "Reused / Computed / Changed",
 // never "Cache Hit / Cache Miss" -- HIT/MISS/STALE are the wire format only.
@@ -10,7 +10,17 @@ const STYLES: Record<CacheStatus, { bg: string; fg: string; icon: string; label:
   FAILED: { bg: "bg-critical/10", fg: "text-critical", icon: "✕", label: "FAILED" },
 };
 
-export default function StatusBadge({ status }: { status: CacheStatus | string }) {
+export default function StatusBadge({
+  status,
+  reuseKind,
+}: {
+  status: CacheStatus | string;
+  // V0.2 -- when set, this HIT reused a portable artifact across a model
+  // switch. Rendered as a sub-label on top of the ordinary REUSED badge
+  // rather than a new CacheStatus variant: it still IS a HIT (nothing was
+  // recomputed), just one worth calling out.
+  reuseKind?: ReuseKind | null;
+}) {
   const style = STYLES[status as CacheStatus] ?? STYLES.MISS;
   return (
     <span
@@ -18,6 +28,11 @@ export default function StatusBadge({ status }: { status: CacheStatus | string }
     >
       <span aria-hidden>{style.icon}</span>
       {style.label}
+      {reuseKind === "CROSS_MODEL" ? (
+        <span className="rounded-pill bg-violet/15 px-1.5 py-0.5 text-[9px] font-semibold text-violet">
+          CROSS-MODEL
+        </span>
+      ) : null}
     </span>
   );
 }

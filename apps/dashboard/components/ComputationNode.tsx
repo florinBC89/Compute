@@ -27,7 +27,7 @@ export default function ComputationNode({ node, onClick }: ComputationNodeProps)
     >
       <div className="flex items-start justify-between gap-2">
         <span className="text-[12.5px] font-semibold leading-tight text-ink">{node.name}</span>
-        <StatusBadge status={node.status} />
+        <StatusBadge status={node.status} reuseKind={node.reuse_kind} />
       </div>
       <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px]">
         <span className="text-ink-muted">Cost</span>

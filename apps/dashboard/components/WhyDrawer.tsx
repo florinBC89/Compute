@@ -24,18 +24,39 @@ const UNCHANGED_CHECKLIST = [
   "Code version",
 ];
 
+// The API's /explain diff (apps/api/app/routes/computations.py) emits
+// dependency_added/removed/changed (with `key` set) plus four unkeyed
+// execution-field kinds -- model_changed, prompt_hash_changed,
+// tool_schema_hash_changed, code_version_changed. Falling through those four
+// to the dependency-shaped message below would mislabel a model change as
+// "dependency changed."
+const EXECUTION_FIELD_LABELS: Record<string, string> = {
+  model_changed: "model",
+  prompt_hash_changed: "prompt",
+  tool_schema_hash_changed: "tool schema",
+  code_version_changed: "code version",
+};
+
 function describeChange(change: ExplainChange): string {
-  const key = change.key ?? "dependency";
-  if (change.kind === "dependency_added") return `${key} is new (no prior version to compare)`;
-  if (change.kind === "dependency_removed") return `${key} was dropped`;
-  return `${key} changed: ${change.old ?? "?"} → ${change.new ?? "?"}`;
+  if (change.kind === "dependency_added") {
+    return `${change.key ?? "dependency"} is new (no prior version to compare)`;
+  }
+  if (change.kind === "dependency_removed") {
+    return `${change.key ?? "dependency"} was dropped`;
+  }
+  const label = EXECUTION_FIELD_LABELS[change.kind] ?? change.key ?? "value";
+  return `${label} changed: ${change.old ?? "?"} → ${change.new ?? "?"}`;
 }
 
 export default function WhyDrawer({ node, onClose }: { node: GraphNode; onClose: () => void }) {
   const [explain, setExplain] = useState<ExplainResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const needsExplain = node.status !== "HIT";
+  // A cross-model HIT still needs an explain fetch even though status is
+  // HIT: something (the model) did change, and the generic "unchanged"
+  // checklist below would be actively wrong for it.
+  const needsExplain = node.status !== "HIT" || node.reuse_kind === "CROSS_MODEL";
+  const showUnchangedChecklist = node.status === "HIT" && node.reuse_kind !== "CROSS_MODEL";
 
   useEffect(() => {
     if (!needsExplain) return;
@@ -70,7 +91,7 @@ export default function WhyDrawer({ node, onClose }: { node: GraphNode; onClose:
           <div>
             <h2 className="text-[17px] font-semibold text-ink">{node.name}</h2>
             <div className="mt-2">
-              <StatusBadge status={node.status} />
+              <StatusBadge status={node.status} reuseKind={node.reuse_kind} />
             </div>
           </div>
           <button
@@ -87,7 +108,14 @@ export default function WhyDrawer({ node, onClose }: { node: GraphNode; onClose:
           Why?
         </h3>
 
-        {node.status === "HIT" ? (
+        {node.reuse_kind === "CROSS_MODEL" ? (
+          <p className="mt-3 rounded-2xl bg-violet/10 px-3 py-2.5 text-[13px] text-violet">
+            Reused anyway — the underlying artifact is portable across models,
+            so only the model changed below.
+          </p>
+        ) : null}
+
+        {showUnchangedChecklist ? (
           <ul className="mt-3 flex flex-col gap-2">
             {UNCHANGED_CHECKLIST.map((item) => (
               <li key={item} className="flex items-center gap-2 text-[13.5px] text-ink">
@@ -104,8 +132,14 @@ export default function WhyDrawer({ node, onClose }: { node: GraphNode; onClose:
           <ul className="mt-3 flex flex-col gap-2">
             {explain.changes.map((change, i) => (
               <li key={i} className="flex items-start gap-2 text-[13.5px] text-ink">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-warning/15 text-[11px] text-warning">
-                  ↻
+                <span
+                  className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[11px] ${
+                    node.reuse_kind === "CROSS_MODEL"
+                      ? "bg-good/10 text-good"
+                      : "bg-warning/15 text-warning"
+                  }`}
+                >
+                  {node.reuse_kind === "CROSS_MODEL" ? "✓" : "↻"}
                 </span>
                 {describeChange(change)}
               </li>

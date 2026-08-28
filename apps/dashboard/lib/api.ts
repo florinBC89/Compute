@@ -1,5 +1,12 @@
-import { DEMO_RUNS, DEMO_RUN_GRAPHS, demoMetrics } from "./fixtures";
-import type { ProjectMetrics, RunGraph, RunListItem, RunSummary } from "./types";
+import { DEMO_RUNS, DEMO_RUN_GRAPHS, demoArtifacts, demoMetrics, demoUsage } from "./fixtures";
+import type {
+  ArtifactListItem,
+  ProjectMetrics,
+  RunGraph,
+  RunListItem,
+  RunSummary,
+  UsageBreakdownItem,
+} from "./types";
 
 // Deliberately not NEXT_PUBLIC_-prefixed: every call site is a Server
 // Component (see `export const dynamic = "force-dynamic"` on each page), so
@@ -58,6 +65,26 @@ export async function getProjectMetrics(period = "30d"): Promise<ProjectMetrics>
   return request<ProjectMetrics>(
     `/projects/${PROJECT}/metrics?period=${period}`
   );
+}
+
+export async function listArtifacts(artifactType?: string): Promise<ArtifactListItem[]> {
+  if (isDemoMode) {
+    const all = demoArtifacts();
+    return artifactType ? all.filter((a) => a.artifact_type === artifactType) : all;
+  }
+  const query = artifactType ? `?artifact_type=${encodeURIComponent(artifactType)}` : "";
+  const data = await request<{ artifacts: ArtifactListItem[] }>(
+    `/projects/${PROJECT}/artifacts${query}`
+  );
+  return data.artifacts;
+}
+
+export async function getUsage(period = "30d"): Promise<UsageBreakdownItem[]> {
+  if (isDemoMode) return demoUsage();
+  const data = await request<{ period: string; items: UsageBreakdownItem[] }>(
+    `/projects/${PROJECT}/usage?period=${period}`
+  );
+  return data.items;
 }
 
 // The "How Accurate thinks" example on Overview: a real run that reused some

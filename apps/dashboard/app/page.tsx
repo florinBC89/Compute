@@ -40,10 +40,16 @@ export default async function OverviewPage() {
         <StatCard label="Tokens avoided" value={formatCompact(tokens.avoided)} sub="not sent to a model" accentValue />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Actual spend" value={formatUsd(cost.actual)} sub="last 30 days" />
         <StatCard label="Cost avoided" value={formatUsd(cost.avoided)} sub="vs. no reuse" accentValue />
         <StatCard label="LLM calls avoided" value={formatCompact(metrics.llm_calls_avoided)} sub={`${formatCompact(metrics.computations)} computations`} />
+        <StatCard
+          label="Cross-model savings"
+          value={formatUsd(metrics.cross_model_saved_usd)}
+          sub="reused across a model switch"
+          accentValue={metrics.cross_model_saved_usd > 0}
+        />
       </div>
 
       <div>
