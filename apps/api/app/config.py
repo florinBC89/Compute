@@ -46,6 +46,13 @@ class Settings(BaseSettings):
     tavily_api_key: str | None = None
     default_job_cost_cap_usd: float = 0.50
 
+    #: Hardening (Phase 10): how many jobs app.worker runs at once in this
+    #: process, and how many of those may belong to the same workspace --
+    #: without the second cap, one workspace queuing many jobs could claim
+    #: every concurrent slot and starve every other workspace.
+    max_concurrent_jobs: int = 4
+    max_concurrent_jobs_per_workspace: int = 2
+
     #: Where app.worker's ComputeLayer client sends its compute.run() calls
     #: -- this process's own API, over the same HTTP protocol any external
     #: SDK user goes through (see app.agent.pipeline). In docker-compose

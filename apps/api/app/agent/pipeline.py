@@ -31,6 +31,8 @@ reusing it verbatim would make a model switch free but pointless.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import uuid
 from typing import Any, Awaitable, Callable
 
@@ -89,6 +91,11 @@ AUTO_ROUTING: dict[str, str] = {
 }
 
 MAX_TOKENS_PER_STEP = 400
+
+#: How often _run_step re-checks whether the job is still RUNNING while a
+#: step is actually in flight (Phase 10). Cheap enough to poll frequently:
+#: it only runs for the duration of one step, not the whole job.
+CANCELLATION_POLL_SECONDS = 0.5
 
 #: Search results are reused for an hour before a re-run treats them as
 #: stale -- long enough that switching models mid-project doesn't trigger a
@@ -178,6 +185,21 @@ async def _set_run_id(
         await session.commit()
 
 
+async def _watch_for_cancellation(
+    session_factory: async_sessionmaker[AsyncSession], job_id: uuid.UUID
+) -> None:
+    """Polls until the job is no longer RUNNING. Raced against an in-flight
+    step in _run_step (Phase 10) so a Cancel click actually interrupts a
+    slow/hung provider call instead of waiting for it to finish or time out
+    on its own -- before this, `job_control.guard()`'s pre-step check meant
+    cancellation only took effect at the *next* step boundary, so a single
+    stuck provider call could make Cancel silently do nothing for as long as
+    that call kept running.
+    """
+    while await job_control.is_still_running(session_factory, job_id):
+        await asyncio.sleep(CANCELLATION_POLL_SECONDS)
+
+
 async def _run_step(
     cl: ComputeLayer,
     session_factory: async_sessionmaker[AsyncSession],
@@ -195,15 +217,38 @@ async def _run_step(
     await job_control.set_current_step(session_factory, job_id, name)
     await job_control.emit(session_factory, job_id, "STEP_STARTED", {"step": name})
 
-    result = await cl.compute.run(
-        name=name,
-        inputs=inputs,
-        fn=fn,
-        model=model,
-        artifact_type=artifact_type,
-        cross_model_reuse=cross_model_reuse,
-        ttl=ttl,
+    step_task = asyncio.create_task(
+        cl.compute.run(
+            name=name,
+            inputs=inputs,
+            fn=fn,
+            model=model,
+            artifact_type=artifact_type,
+            cross_model_reuse=cross_model_reuse,
+            ttl=ttl,
+        )
     )
+    watch_task = asyncio.create_task(_watch_for_cancellation(session_factory, job_id))
+    try:
+        done, _ = await asyncio.wait(
+            {step_task, watch_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        if step_task not in done:
+            # Cancelled mid-call: stop waiting on the provider rather than
+            # letting it run to completion. Cancelling step_task throws
+            # CancelledError into cl.compute.run() at its current await
+            # point; Compute.run()'s own `except BaseException` handler
+            # records the computation as FAILED and releases the stampede
+            # lock before that propagates here.
+            step_task.cancel()
+            with contextlib.suppress(BaseException):
+                await step_task
+            raise JobCancelled()
+        result = step_task.result()
+    finally:
+        watch_task.cancel()
+        with contextlib.suppress(BaseException):
+            await watch_task
 
     if result.cost_usd:
         await job_control.add_spend(session_factory, job_id, result.cost_usd)

@@ -20,6 +20,18 @@ interface JobDetail {
 
 const TERMINAL_TYPES = new Set(["SUCCEEDED", "FAILED", "CANCELLED"]);
 
+// Phase 10: app.worker classifies a real provider/network failure
+// separately from any other bug (error_message "provider unavailable" vs
+// "internal error") -- worth a distinct, more honest message here rather
+// than folding every failure into one generic line.
+function failureMessage(errorMessage: string | null): string {
+  if (errorMessage === "cost cap reached") return "This task hit its cost limit and stopped.";
+  if (errorMessage === "provider unavailable") {
+    return "One of the AI providers is temporarily unavailable. Please try again shortly.";
+  }
+  return "Something went wrong. Please try again.";
+}
+
 // Phase 9: "Auto - Best value" is the spec's own mockup default -- routes
 // each step to a different provider via app.agent.pipeline.AUTO_ROUTING
 // server-side. The explicit 3-way choice from Phase 7 remains for anyone
@@ -180,11 +192,13 @@ export default function TaskRunner() {
 
       {job?.status === "FAILED" ? (
         <div className="mt-8 rounded-card border border-border bg-surface p-6 text-center">
-          <p className="text-[14px] text-critical">
-            {job.error_message === "cost cap reached"
-              ? "This task hit its cost limit and stopped."
-              : "Something went wrong."}
-          </p>
+          <p className="text-[14px] text-critical">{failureMessage(job.error_message)}</p>
+        </div>
+      ) : null}
+
+      {job?.status === "CANCELLED" ? (
+        <div className="mt-8 rounded-card border border-border bg-surface p-6 text-center">
+          <p className="text-[14px] text-ink-secondary">This task was cancelled.</p>
         </div>
       ) : null}
     </div>

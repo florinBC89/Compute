@@ -137,10 +137,13 @@ async def cancel_job(
     session: AsyncSession = Depends(get_session),
 ) -> JobResponse:
     """Mark a job CANCELLED. For a QUEUED job this is final immediately --
-    the worker never picks it up. For a RUNNING job, the worker itself
-    re-reads `status` between pipeline steps (see app.worker) and stops
-    without overwriting this back to SUCCEEDED/FAILED once it sees it's no
-    longer RUNNING; no separate "cancel requested" flag is needed.
+    the worker never picks it up. For a RUNNING job, the pipeline itself
+    watches `status` for the duration of the step currently in flight (see
+    app.agent.pipeline._watch_for_cancellation), so this interrupts even a
+    slow/hung provider call rather than only taking effect at the next step
+    boundary; it never overwrites this back to SUCCEEDED/FAILED once it
+    sees it's no longer RUNNING. No separate "cancel requested" flag is
+    needed.
     """
     job = await _get_owned_job(session, job_id, current_user)
     if job.status in ("QUEUED", "RUNNING"):

@@ -1,8 +1,9 @@
 """Jobs API + real research pipeline (V0.2 human-workspace slice).
 
 Covers job creation (incl. default-project auto-provisioning), ownership
-checks, cancellation, the SSE events endpoint closing once a terminal event
-has been sent, and the real pipeline (search_sources -> extract_facts ->
+checks, cancellation (both between pipeline steps and mid-provider-call,
+Phase 10), the SSE events endpoint closing once a terminal event has been
+sent, and the real pipeline (search_sources -> extract_facts ->
 research_background -> analyze -> write_draft -> fact_check) running a job
 to completion, respecting an externally-set CANCELLED status mid-pipeline,
 and stopping on a cost-cap breach -- with the LLM/search calls mocked (see
@@ -13,7 +14,9 @@ selection (Phase 7) and static per-step Auto-mode routing (Phase 9).
 
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 import uuid
 from typing import Any
 
@@ -653,3 +656,145 @@ async def test_auto_mode_routes_different_steps_to_different_providers(
         # Auto mode, and what distinguishes it from the single-provider path
         # covered by test_pipeline_dispatches_to_the_requested_provider.
         assert len(set(AUTO_ROUTING.values())) > 1
+
+
+@pytest.mark.asyncio
+async def test_cancel_interrupts_a_hanging_provider_call(
+    workspace_http_client,
+    auth_headers,
+    engine,
+    pipeline_transport_factory,
+    fake_tavily,
+    monkeypatch,
+):
+    """Phase 10: before this, a Cancel click only took effect at the *next*
+    step boundary (job_control.guard()'s pre-step check) -- a single stuck
+    provider call could make Cancel do nothing until that call eventually
+    finished or timed out on its own. Proves the fix by hanging the
+    extract_facts call for 60s and cancelling shortly after it starts: the
+    job must reach CANCELLED in well under 60s, not after the hang.
+    """
+    from app.agent import pipeline as pipeline_module
+    from app.agent.providers import openai as openai_provider
+    from app import worker
+    from app.models import Job
+
+    # Fast poll so the test doesn't itself wait a real 0.5s per iteration.
+    monkeypatch.setattr(pipeline_module, "CANCELLATION_POLL_SECONDS", 0.01)
+
+    call_started = asyncio.Event()
+
+    async def _hanging_complete(*, system: str, prompt: str, max_tokens: int = 400) -> str:
+        call_started.set()
+        await asyncio.sleep(60)
+        return "should never be reached"
+
+    monkeypatch.setattr(openai_provider, "complete", _hanging_complete)
+
+    created = await workspace_http_client.post(
+        "/jobs", json={"task_text": "cancel mid llm call"}, headers=auth_headers
+    )
+    job_id = uuid.UUID(created.json()["id"])
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    claimed = await worker._claim_next_job(session_factory)
+
+    async def _cancel_once_call_starts() -> None:
+        await call_started.wait()
+        async with session_factory() as session:
+            job = await session.get(Job, job_id)
+            job.status = "CANCELLED"
+            await session.commit()
+
+    canceller = asyncio.create_task(_cancel_once_call_starts())
+    started = time.monotonic()
+    await worker._run_one(session_factory, claimed, transport_factory=pipeline_transport_factory)
+    elapsed = time.monotonic() - started
+    await canceller
+
+    # Generous versus the 60s hang, tight enough to prove it didn't wait it out.
+    assert elapsed < 10
+
+    async with session_factory() as session:
+        job = await session.get(Job, job_id)
+        assert job.status == "CANCELLED"
+
+
+@pytest.mark.asyncio
+async def test_per_workspace_cap_skips_a_saturated_workspace(
+    workspace_http_client, auth_headers, engine
+):
+    """Phase 10: _claim_next_job's per-workspace cap is what stops one
+    workspace queuing many jobs from starving every other workspace once
+    the worker runs several jobs concurrently -- without it, a workspace's
+    own backlog would simply claim every free concurrent slot.
+    """
+    from app import worker
+    from app.models import Job
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    first = await workspace_http_client.post(
+        "/jobs", json={"task_text": "job one"}, headers=auth_headers
+    )
+    second = await workspace_http_client.post(
+        "/jobs", json={"task_text": "job two"}, headers=auth_headers
+    )
+    first_id = uuid.UUID(first.json()["id"])
+    second_id = uuid.UUID(second.json()["id"])
+
+    claimed_first = await worker._claim_next_job(session_factory, max_per_workspace=1)
+    assert claimed_first is not None and claimed_first.id == first_id
+
+    # The workspace already has one RUNNING job -- with a cap of 1, its
+    # second QUEUED job must not be claimable yet, even though nothing else
+    # is competing for the slot.
+    assert await worker._claim_next_job(session_factory, max_per_workspace=1) is None
+
+    async with session_factory() as session:
+        job = await session.get(Job, first_id)
+        job.status = "SUCCEEDED"
+        await session.commit()
+
+    # Finishing the first job frees the workspace's one slot.
+    claimed_second = await worker._claim_next_job(session_factory, max_per_workspace=1)
+    assert claimed_second is not None and claimed_second.id == second_id
+
+
+@pytest.mark.asyncio
+async def test_provider_outage_is_classified_separately_from_other_errors(
+    workspace_http_client,
+    auth_headers,
+    engine,
+    pipeline_transport_factory,
+    monkeypatch,
+):
+    """A real provider/network failure should surface as error_message
+    "provider unavailable" -- distinct from the generic "internal error"
+    catch-all -- so apps/workspace can tell a user to try again shortly
+    instead of implying a bug in the product itself.
+    """
+    import httpx as httpx_module
+
+    from app import worker
+    from app.agent import tavily
+    from app.models import Job
+
+    async def _broken_search(query: str, *, max_results: int = 5):
+        raise httpx_module.ConnectError("connection refused")
+
+    monkeypatch.setattr(tavily, "search", _broken_search)
+
+    created = await workspace_http_client.post(
+        "/jobs", json={"task_text": "provider is down"}, headers=auth_headers
+    )
+    job_id = uuid.UUID(created.json()["id"])
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    claimed = await worker._claim_next_job(session_factory)
+    await worker._run_one(session_factory, claimed, transport_factory=pipeline_transport_factory)
+
+    async with session_factory() as session:
+        job = await session.get(Job, job_id)
+        assert job.status == "FAILED"
+        assert job.error_message == "provider unavailable"
