@@ -25,6 +25,22 @@ from app.models.base import Base, uuid_fk, uuid_pk
 
 COMPUTATION_STATUSES = ("RUNNING", "SUCCEEDED", "FAILED")
 CACHE_STATUSES = ("HIT", "MISS", "STALE", "FORCED")
+#: V0.2 cross-model reuse (see artifact_policy.py). Deliberately not folded
+#: into CACHE_STATUSES: a cross-model reuse is still, semantically, a HIT --
+#: nothing was recomputed. reuse_kind records *why* separately, so every
+#: consumer that doesn't know about it (hit-rate math, the dashboard's
+#: CacheStatus union, the conformance scenarios) keeps seeing an ordinary,
+#: correct HIT.
+ARTIFACT_TYPES = (
+    "source",
+    "fact",
+    "structured_data",
+    "research_note",
+    "analysis",
+    "draft",
+    "citation",
+)
+REUSE_KINDS = ("CROSS_MODEL",)
 
 
 class Computation(Base):
@@ -89,6 +105,21 @@ class Computation(Base):
             "output_hash IS NULL OR output_hash ~ '^[0-9a-f]{64}$'",
             name="ck_computations_output_hash_hex",
         ),
+        CheckConstraint(
+            "model_agnostic_fingerprint IS NULL OR "
+            "model_agnostic_fingerprint ~ '^[0-9a-f]{64}$'",
+            name="ck_computations_model_agnostic_fingerprint_hex",
+        ),
+        CheckConstraint(
+            "artifact_type IS NULL OR artifact_type IN "
+            "('source','fact','structured_data','research_note','analysis',"
+            "'draft','citation')",
+            name="ck_computations_artifact_type",
+        ),
+        CheckConstraint(
+            "reuse_kind IS NULL OR reuse_kind IN ('CROSS_MODEL')",
+            name="ck_computations_reuse_kind",
+        ),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -121,6 +152,18 @@ class Computation(Base):
     prompt_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     tool_schema_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     code_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    #: build_model_agnostic_fingerprint() -- same as `fingerprint` but with
+    #: `model` excluded from the hash. Populated on every computation
+    #: regardless of whether that call opted into cross-model reuse, so any
+    #: past row can become a future cross-model source.
+    model_agnostic_fingerprint: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Portable-artifact taxonomy (see ARTIFACT_TYPES). NULL means "not
+    #: classified" -- ineligible as a cross-model source, not an error.
+    artifact_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Set on HIT observation rows produced via cross-model reuse (see
+    #: artifact_policy.py). NULL for an ordinary same-model HIT.
+    reuse_kind: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     input_tokens: Mapped[int] = mapped_column(
         BigInteger, nullable=False, default=0, server_default="0"

@@ -1,7 +1,8 @@
--- ComputeLayer V0.1 schema (spec §6), as raw DDL.
+-- ComputeLayer schema (spec §6, plus the V0.2 cross-model reuse slice), as
+-- raw DDL.
 --
--- Alembic revision 0001 is what actually runs; this file is the readable
--- reference and is verified to apply cleanly to PostgreSQL 16.
+-- Alembic revisions 0001+0002 are what actually run; this file is the
+-- readable reference and is verified to apply cleanly to PostgreSQL 16.
 
 CREATE TABLE workspaces (
     id          UUID PRIMARY KEY,
@@ -93,6 +94,12 @@ CREATE TABLE computations (
     completed_at      TIMESTAMPTZ,
     expires_at        TIMESTAMPTZ,
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- V0.2 cross-model reuse (added in revision 0002). All nullable, no
+    -- backfill: rows written before 0002 are simply unclassified and
+    -- ineligible as cross-model sources.
+    model_agnostic_fingerprint  TEXT,
+    artifact_type               TEXT,
+    reuse_kind                  TEXT,
     CONSTRAINT ck_computations_status
         CHECK (status IN ('RUNNING', 'SUCCEEDED', 'FAILED')),
     CONSTRAINT ck_computations_cache_status
@@ -106,7 +113,17 @@ CREATE TABLE computations (
     CONSTRAINT ck_computations_logical_key_hex
         CHECK (logical_key ~ '^[0-9a-f]{64}$'),
     CONSTRAINT ck_computations_output_hash_hex
-        CHECK (output_hash IS NULL OR output_hash ~ '^[0-9a-f]{64}$')
+        CHECK (output_hash IS NULL OR output_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_computations_model_agnostic_fingerprint_hex
+        CHECK (model_agnostic_fingerprint IS NULL
+               OR model_agnostic_fingerprint ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_computations_artifact_type
+        CHECK (artifact_type IS NULL OR artifact_type IN (
+            'source', 'fact', 'structured_data', 'research_note',
+            'analysis', 'draft', 'citation'
+        )),
+    CONSTRAINT ck_computations_reuse_kind
+        CHECK (reuse_kind IS NULL OR reuse_kind IN ('CROSS_MODEL'))
 );
 
 CREATE INDEX idx_computations_fingerprint
@@ -177,3 +194,36 @@ CREATE TABLE computation_events (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_events_computation ON computation_events (computation_id, id);
+
+-- V0.2 cross-model reuse: per-workspace/per-project portability policy.
+-- A project_id IS NULL row is the workspace-wide default; a project_id
+-- IS NOT NULL row overrides it for that project. Resolution order: project
+-- row -> workspace row -> hardcoded fallback default (see
+-- app.services.artifact_policy).
+CREATE TABLE artifact_type_policies (
+    id             UUID PRIMARY KEY,
+    workspace_id   UUID NOT NULL REFERENCES workspaces (id),
+    project_id     UUID REFERENCES projects (id),
+    artifact_type  TEXT NOT NULL,
+    portable       BOOLEAN NOT NULL,
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ck_artifact_policy_type
+        CHECK (artifact_type IN (
+            'source', 'fact', 'structured_data', 'research_note',
+            'analysis', 'draft', 'citation'
+        ))
+);
+CREATE INDEX ix_artifact_type_policies_workspace_id
+    ON artifact_type_policies (workspace_id);
+CREATE INDEX ix_artifact_type_policies_project_id
+    ON artifact_type_policies (project_id);
+-- NULL is never equal to NULL in SQL, so a plain UNIQUE(workspace_id,
+-- project_id, artifact_type) would let unlimited duplicate workspace-default
+-- rows (project_id IS NULL) through. Two partial unique indexes instead.
+CREATE UNIQUE INDEX ux_artifact_policy_workspace_default
+    ON artifact_type_policies (workspace_id, artifact_type)
+    WHERE project_id IS NULL;
+CREATE UNIQUE INDEX ux_artifact_policy_project_override
+    ON artifact_type_policies (workspace_id, project_id, artifact_type)
+    WHERE project_id IS NOT NULL;

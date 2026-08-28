@@ -2,6 +2,7 @@
 
 from app.models.base import Base
 from app.models.api_key import ApiKey
+from app.models.artifact_policy import ArtifactTypePolicy
 from app.models.computation import Computation
 from app.models.dependency import ComputationDependency
 from app.models.event import ComputationEvent
@@ -13,6 +14,7 @@ from app.models.workspace import Workspace
 __all__ = [
     "Base",
     "ApiKey",
+    "ArtifactTypePolicy",
     "Computation",
     "ComputationDependency",
     "ComputationEvent",
