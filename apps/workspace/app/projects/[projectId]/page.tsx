@@ -46,7 +46,7 @@ export default async function ProjectPage({
   const groups = groupByType(artifacts);
 
   return (
-    <div>
+    <div className="mx-auto min-h-screen max-w-[720px] px-6 py-8 sm:px-8">
       <div className="flex items-center justify-between">
         <h1 className="text-[20px] font-semibold text-ink">This project</h1>
         <Link href="/" className="text-[13px] text-ink-muted hover:text-ink">

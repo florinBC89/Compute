@@ -91,6 +91,32 @@ export interface ModelSwitchPreview {
   estimated_incremental_cost_usd: number;
 }
 
+// V0.3 chat turns: a turn IS a Job (see apps/api/app/services/jobs.py) --
+// no separate message type. Plain interfaces, safe to import from client
+// components (unlike the authorizedFetch-based functions below, which need
+// the server-only Supabase client).
+export type JobStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+
+export interface JobDetail {
+  id: string;
+  status: JobStatus;
+  task_text: string;
+  answer_text: string | null;
+  current_step: string | null;
+  error_message: string | null;
+  spent_usd: number;
+  cost_cap_usd: number;
+  run_id: string | null;
+  project_id: string;
+}
+
+export interface JobEvent {
+  id: number;
+  event_type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
 export const API_URL = process.env.COMPUTELAYER_API_URL ?? "http://localhost:8000/v1";
 
 // Server-side only: forwards the signed-in user's own Supabase access token
@@ -135,6 +161,15 @@ export async function getProjectArtifacts(projectId: string): Promise<Artifact[]
   }
   const data = await response.json();
   return data.artifacts;
+}
+
+export async function getProjectJobs(projectId: string): Promise<JobDetail[]> {
+  const response = await authorizedFetch(`/workspace/projects/${projectId}/jobs`);
+  if (!response.ok) {
+    throw new Error(`GET project jobs failed: ${response.status}`);
+  }
+  const data = await response.json();
+  return data.jobs;
 }
 
 export async function getRunSummary(runId: string): Promise<RunSummary> {

@@ -22,7 +22,7 @@ export default function LoginPage() {
   const [state, formAction] = useFormState(signInWithMagicLink, initialState);
 
   return (
-    <div className="flex min-h-[70vh] flex-col items-center justify-center">
+    <div className="mx-auto flex min-h-screen max-w-[720px] flex-col items-center justify-center px-6 sm:px-8">
       <div className="w-full max-w-[380px] rounded-card bg-surface p-8 shadow-card">
         <h1 className="text-[22px] font-semibold text-ink">Accurate</h1>
         <p className="mt-2 text-[14px] text-ink-secondary">

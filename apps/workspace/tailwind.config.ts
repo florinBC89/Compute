@@ -23,6 +23,14 @@ const config: Config = {
         critical: "var(--critical)",
         info: "var(--info)",
         violet: "var(--violet)",
+        // Chat surface (V0.3) -- see app/globals.css for why these are
+        // separate from page/surface/ink above.
+        "chat-warm": "var(--chat-warm)",
+        "chat-ink": "var(--chat-ink)",
+        "chat-ink-soft": "var(--chat-ink-soft)",
+        "chat-label": "var(--chat-label)",
+        "chat-border-warm": "var(--chat-border-warm)",
+        "chat-accent-strong": "var(--chat-accent-strong)",
       },
       borderRadius: {
         card: "28px",
@@ -41,6 +49,9 @@ const config: Config = {
           "Arial",
           "sans-serif",
         ],
+        // Chat surface heading font (V0.3 Figma design) -- loaded via
+        // next/font/google in app/layout.tsx as the --font-display CSS var.
+        display: ["var(--font-display)", "Georgia", "serif"],
       },
     },
   },

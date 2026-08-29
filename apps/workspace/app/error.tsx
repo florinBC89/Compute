@@ -22,15 +22,17 @@ export default function Error({
   }, [error]);
 
   return (
-    <div className="mt-8 rounded-card border border-border bg-surface p-8 text-center">
-      <p className="text-[14px] text-ink">Something went wrong loading this page.</p>
-      <button
-        type="button"
-        onClick={() => reset()}
-        className="mt-4 rounded-pill bg-accent px-5 py-2.5 text-[14px] font-semibold text-white"
-      >
-        Try again
-      </button>
+    <div className="mx-auto flex min-h-screen max-w-[720px] items-center justify-center px-6 sm:px-8">
+      <div className="w-full rounded-card border border-border bg-surface p-8 text-center">
+        <p className="text-[14px] text-ink">Something went wrong loading this page.</p>
+        <button
+          type="button"
+          onClick={() => reset()}
+          className="mt-4 rounded-pill bg-accent px-5 py-2.5 text-[14px] font-semibold text-white"
+        >
+          Try again
+        </button>
+      </div>
     </div>
   );
 }

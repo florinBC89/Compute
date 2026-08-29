@@ -23,6 +23,20 @@
   --critical: #d03b3b;
   --info: #2a78d6;
   --violet: #4a3aa7;
+
+  /* Chat surface (V0.3, from the "Registered user" Figma flow) -- a
+     distinct warm palette from --page/--surface above, used only by the
+     chat sidebar/composer/turn components so the rest of the app (login,
+     error state) is untouched. Values below are the real Figma light-mode
+     hex codes; dark-mode values are derived by the same light->dark
+     relationship the tokens above already use, since the design itself is
+     light-only. */
+  --chat-warm: #fff5f1;
+  --chat-ink: #212121;
+  --chat-ink-soft: #695f5b;
+  --chat-label: #937365;
+  --chat-border-warm: #ebd8d0;
+  --chat-accent-strong: #ff5107;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -46,6 +60,13 @@
     --critical: #e66767;
     --info: #3987e5;
     --violet: #9085e9;
+
+    --chat-warm: #241d18;
+    --chat-ink: #f5f3ef;
+    --chat-ink-soft: #b8b0a8;
+    --chat-label: #c9a894;
+    --chat-border-warm: rgba(255, 255, 255, 0.12);
+    --chat-accent-strong: #ff6b35;
   }
 }
 
@@ -69,6 +90,13 @@
   --critical: #e66767;
   --info: #3987e5;
   --violet: #9085e9;
+
+  --chat-warm: #241d18;
+  --chat-ink: #f5f3ef;
+  --chat-ink-soft: #b8b0a8;
+  --chat-label: #c9a894;
+  --chat-border-warm: rgba(255, 255, 255, 0.12);
+  --chat-accent-strong: #ff6b35;
 }
 
 * {

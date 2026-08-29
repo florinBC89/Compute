@@ -1,31 +1,22 @@
-import { getMe } from "@/lib/api";
-import TaskRunner from "@/components/TaskRunner";
-import { signOut } from "./actions";
+import { getMe, getProjectJobs } from "@/lib/api";
+import ChatThread from "@/components/ChatThread";
+import Sidebar from "@/components/Sidebar";
 
 export const dynamic = "force-dynamic";
 
-// Phases 2-3 (V0.2 human workspace): a protected shell (GET /v1/me) plus a
-// task runner proving the job/worker/SSE plumbing against the stub
-// pipeline. The project tree and a real result screen are later phases,
-// once the real research pipeline (Phase 4+) gives them real data to show.
+// V0.3: the chat surface from the "Registered user" Figma flow. A user's
+// first-ever message auto-provisions their one project (see
+// app.routes.jobs._find_or_create_default_project) -- until then there's
+// nothing to fetch, so `me.projects` is empty and the thread starts empty.
 export default async function HomePage() {
   const me = await getMe();
+  const project = me.projects[0] ?? null;
+  const turns = project ? await getProjectJobs(project.id) : [];
 
   return (
-    <div>
-      <div className="flex items-center justify-between">
-        <h1 className="text-[20px] font-semibold text-ink">{me.workspace_name}</h1>
-        <form action={signOut}>
-          <button
-            type="submit"
-            className="text-[13px] text-ink-muted hover:text-ink"
-          >
-            Sign out
-          </button>
-        </form>
-      </div>
-
-      <TaskRunner />
+    <div className="flex">
+      <Sidebar email={me.email} />
+      <ChatThread initialProjectId={project?.id ?? null} initialTurns={turns} />
     </div>
   );
 }
