@@ -37,6 +37,11 @@ class Job(Base):
     run_id: Mapped[uuid.UUID | None] = uuid_fk("runs.id", nullable=True)
 
     task_text: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The clean assistant-facing reply (V0.3 chat) -- distinct from the
+    #: internal step artifacts it's drawn from (today, write_draft's
+    #: output). Populated once the job SUCCEEDS; None until then and for
+    #: any job that doesn't finish successfully.
+    answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_preference: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(
         Text, nullable=False, default="QUEUED", server_default="QUEUED"

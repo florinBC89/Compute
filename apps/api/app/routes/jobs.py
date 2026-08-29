@@ -23,6 +23,7 @@ from app.db import get_session, get_sessionmaker
 from app.models import Job, JobEvent, Project
 from app.models.base import utcnow
 from app.schemas.job import JobCreateRequest, JobEventItem, JobResponse
+from app.services.jobs import to_job_response
 from app.services.user_scope import CurrentUser, resolve_current_user
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -35,20 +36,6 @@ DEFAULT_PROJECT_SLUG = "default"
 
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 SSE_POLL_INTERVAL_SECONDS = 0.5
-
-
-def _to_response(job: Job) -> JobResponse:
-    return JobResponse(
-        id=str(job.id),
-        status=job.status,
-        task_text=job.task_text,
-        current_step=job.current_step,
-        error_message=job.error_message,
-        spent_usd=float(job.spent_usd),
-        cost_cap_usd=float(job.cost_cap_usd),
-        run_id=str(job.run_id) if job.run_id else None,
-        project_id=str(job.project_id),
-    )
 
 
 async def _find_or_create_default_project(
@@ -118,7 +105,7 @@ async def create_job(
     session.add(job)
     await session.flush()
     session.add(JobEvent(job_id=job.id, event_type="QUEUED", payload={}))
-    return _to_response(job)
+    return to_job_response(job)
 
 
 @router.get("/{job_id}", response_model=JobResponse)
@@ -127,7 +114,7 @@ async def get_job(
     current_user: CurrentUser = Depends(resolve_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> JobResponse:
-    return _to_response(await _get_owned_job(session, job_id, current_user))
+    return to_job_response(await _get_owned_job(session, job_id, current_user))
 
 
 @router.post("/{job_id}/cancel", response_model=JobResponse)
@@ -150,7 +137,7 @@ async def cancel_job(
         job.status = "CANCELLED"
         job.finished_at = utcnow()
         session.add(JobEvent(job_id=job.id, event_type="CANCELLED", payload={}))
-    return _to_response(job)
+    return to_job_response(job)
 
 
 @router.get("/{job_id}/events")

@@ -337,6 +337,10 @@ async def test_pipeline_runs_to_completion(
         assert job.finished_at is not None
         assert job.run_id is not None
         assert 0 < float(job.spent_usd) < float(job.cost_cap_usd)
+        # V0.3 Phase 0: the clean assistant-facing answer is write_draft's
+        # output, not fact_check's (a QA side-step, never the shown answer).
+        assert job.answer_text is not None
+        assert job.answer_text.startswith("[fake completion for:")
 
         run = await session.get(Run, job.run_id)
         assert run is not None and run.status == "SUCCEEDED"

@@ -1,11 +1,12 @@
 """Workspace-scoped project/run views (V0.2 human-workspace slice, Phases
-6 and 8).
+6 and 8; V0.3 chat-turns slice, Phase 0).
 
 Covers the same numbers the developer dashboard's project-slug routes
 already report (app.services.artifacts/app.services.runs/app.services.
 cross_model are shared), plus the ownership check that's unique to this
 surface: a project or run belonging to a *different* workspace must 404,
-not leak data.
+not leak data. Also covers the turn-history route backing the chat thread
+(app.services.jobs.list_project_jobs) -- a project's jobs, oldest first.
 """
 
 from __future__ import annotations
@@ -195,6 +196,45 @@ async def test_run_graph_lists_nodes(workspace_http_client, auth_headers, seeded
     assert response.status_code == 200
     names = {n["name"] for n in response.json()["nodes"]}
     assert names == {"extract_facts", "fact_check"}
+
+
+@pytest.mark.asyncio
+async def test_project_jobs_lists_turns_in_order(
+    workspace_http_client, auth_headers, seeded_run
+):
+    """V0.3 Phase 0: a project's turn history is just its jobs, oldest
+    first -- seeded_run's own setup already created one ("seed a
+    project"); two more here prove ordering, not just presence.
+    """
+    await workspace_http_client.post(
+        "/jobs", json={"task_text": "second turn"}, headers=auth_headers
+    )
+    await workspace_http_client.post(
+        "/jobs", json={"task_text": "third turn"}, headers=auth_headers
+    )
+
+    response = await workspace_http_client.get(
+        f"/workspace/projects/{seeded_run['project_id']}/jobs", headers=auth_headers
+    )
+
+    assert response.status_code == 200
+    jobs = response.json()["jobs"]
+    assert [j["task_text"] for j in jobs] == ["seed a project", "second turn", "third turn"]
+    assert all(j["project_id"] == str(seeded_run["project_id"]) for j in jobs)
+    # None of these jobs has run yet -- no answer_text yet either.
+    assert all(j["answer_text"] is None for j in jobs)
+
+
+@pytest.mark.asyncio
+async def test_project_jobs_from_another_workspace_is_not_found(
+    workspace_http_client, keypair, seeded_run
+):
+    other_token = _make_token(keypair, sub=str(uuid.uuid4()), email="other@example.com")
+    response = await workspace_http_client.get(
+        f"/workspace/projects/{seeded_run['project_id']}/jobs",
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

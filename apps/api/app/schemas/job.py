@@ -19,12 +19,24 @@ class JobResponse(BaseModel):
     id: str
     status: JobStatus
     task_text: str
+    #: The clean assistant-facing reply (V0.3 chat turn) -- None until the
+    #: job SUCCEEDS. See app.services.jobs.to_job_response.
+    answer_text: str | None = None
     current_step: str | None = None
     error_message: str | None = None
     spent_usd: float
     cost_cap_usd: float
     run_id: str | None = None
     project_id: str
+
+
+class JobList(BaseModel):
+    """A project's turn history, oldest first -- the conversation itself
+    (V0.3): no separate messages table, a turn IS a Job. See
+    app.services.jobs.list_project_jobs.
+    """
+
+    jobs: list[JobResponse]
 
 
 class JobEventItem(BaseModel):

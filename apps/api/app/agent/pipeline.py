@@ -437,6 +437,10 @@ async def run_research_pipeline(
                 return  # cancelled during the last step
             live_job.status = "SUCCEEDED"
             live_job.current_step = None
+            # The clean assistant-facing reply (V0.3 chat turn): write_draft's
+            # output, not fact_check's -- fact_check is a QA side-step whose
+            # own output is a verification note, never the shown answer.
+            live_job.answer_text = draft.value
             live_job.finished_at = utcnow()
             await session.commit()
         await job_control.emit(session_factory, job.id, "SUCCEEDED")

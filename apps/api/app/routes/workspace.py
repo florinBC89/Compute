@@ -20,10 +20,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_session
 from app.models import Project, Run
 from app.schemas.cross_model import PreviewModelSwitchRequest, PreviewModelSwitchResponse
+from app.schemas.job import JobList
 from app.schemas.metrics import ArtifactListResponse
 from app.schemas.run import RunGraph, RunSummary
 from app.services.artifacts import artifact_list_item, list_project_artifacts
 from app.services.cross_model import build_preview
+from app.services.jobs import list_project_jobs, to_job_response
 from app.services.runs import run_graph_data, run_totals
 from app.services.scope import Scope
 from app.services.user_scope import CurrentUser, resolve_current_user
@@ -65,6 +67,21 @@ async def workspace_project_artifacts(
     await _owned_project(session, project_id, current_user)
     rows = await list_project_artifacts(session, project_id, artifact_type)
     return ArtifactListResponse(artifacts=[artifact_list_item(row) for row in rows])
+
+
+@router.get("/projects/{project_id}/jobs", response_model=JobList)
+async def workspace_project_jobs(
+    project_id: uuid.UUID,
+    current_user: CurrentUser = Depends(resolve_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> JobList:
+    """Backs the workspace app's chat thread (V0.3 Phase 0): a project's
+    turn history, oldest first. See app.services.jobs.list_project_jobs --
+    "Job-as-turn": no separate messages table, a turn IS a Job.
+    """
+    await _owned_project(session, project_id, current_user)
+    jobs = await list_project_jobs(session, project_id)
+    return JobList(jobs=[to_job_response(job) for job in jobs])
 
 
 @router.get("/runs/{run_id}", response_model=RunSummary)

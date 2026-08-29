@@ -262,6 +262,7 @@ CREATE TABLE jobs (
     user_id           UUID NOT NULL REFERENCES users (id),
     run_id            UUID REFERENCES runs (id),
     task_text         TEXT NOT NULL,
+    answer_text       TEXT,
     model_preference  TEXT,
     status            TEXT NOT NULL DEFAULT 'QUEUED',
     current_step      TEXT,
