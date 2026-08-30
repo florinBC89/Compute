@@ -205,12 +205,21 @@ async def test_project_jobs_lists_turns_in_order(
     """V0.3 Phase 0: a project's turn history is just its jobs, oldest
     first -- seeded_run's own setup already created one ("seed a
     project"); two more here prove ordering, not just presence.
+
+    V0.3 conversation history: project_id must be passed explicitly to
+    land in the SAME conversation -- omitting it now creates a brand-new
+    project per call (each job with no project_id starts its own
+    conversation), so these two use seeded_run's project_id on purpose.
     """
     await workspace_http_client.post(
-        "/jobs", json={"task_text": "second turn"}, headers=auth_headers
+        "/jobs",
+        json={"task_text": "second turn", "project_id": str(seeded_run["project_id"])},
+        headers=auth_headers,
     )
     await workspace_http_client.post(
-        "/jobs", json={"task_text": "third turn"}, headers=auth_headers
+        "/jobs",
+        json={"task_text": "third turn", "project_id": str(seeded_run["project_id"])},
+        headers=auth_headers,
     )
 
     response = await workspace_http_client.get(
@@ -235,6 +244,24 @@ async def test_project_jobs_from_another_workspace_is_not_found(
         headers={"Authorization": f"Bearer {other_token}"},
     )
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_me_lists_projects_most_recent_first(workspace_http_client, auth_headers):
+    """V0.3 conversation history: the sidebar's "Recent" list reads
+    me.projects in order, so GET /me must return most-recently-created
+    first -- not the unordered default a bare query would give.
+    """
+    first = await workspace_http_client.post(
+        "/jobs", json={"task_text": "older conversation"}, headers=auth_headers
+    )
+    second = await workspace_http_client.post(
+        "/jobs", json={"task_text": "newer conversation"}, headers=auth_headers
+    )
+
+    me = await workspace_http_client.get("/me", headers=auth_headers)
+    project_ids = [p["id"] for p in me.json()["projects"]]
+    assert project_ids == [second.json()["project_id"], first.json()["project_id"]]
 
 
 @pytest.mark.asyncio

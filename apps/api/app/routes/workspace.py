@@ -79,9 +79,9 @@ async def workspace_project_jobs(
     turn history, oldest first. See app.services.jobs.list_project_jobs --
     "Job-as-turn": no separate messages table, a turn IS a Job.
     """
-    await _owned_project(session, project_id, current_user)
+    project = await _owned_project(session, project_id, current_user)
     jobs = await list_project_jobs(session, project_id)
-    return JobList(jobs=[to_job_response(job) for job in jobs])
+    return JobList(jobs=[to_job_response(job, project.name) for job in jobs])
 
 
 @router.get("/runs/{run_id}", response_model=RunSummary)

@@ -12,6 +12,7 @@ runs for real against the real Postgres schema.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import uuid
 
@@ -119,6 +120,34 @@ async def test_repeat_login_reuses_the_same_workspace(workspace_http_client, key
 
     assert first.json()["workspace_id"] == second.json()["workspace_id"]
     assert first.json()["user_id"] == second.json()["user_id"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_first_logins_for_the_same_user_dont_500(
+    workspace_http_client, keypair
+):
+    """Regression test for a real bug: resolve_current_user's first-login
+    path was a plain check-then-insert (SELECT, then INSERT if not found).
+    Two concurrent requests for a brand-new Supabase user (e.g. two
+    authenticated calls firing on someone's very first page load) could
+    both see "no row yet" and both try to INSERT, and the loser hit a
+    Postgres UniqueViolationError -- an unhandled 500 for a login that
+    genuinely succeeded. Fixed by catching the IntegrityError and re-reading
+    the winner's row instead of failing.
+    """
+    sub = str(uuid.uuid4())
+    token = _make_token(keypair, sub=sub, email="racing@example.com")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    first, second = await asyncio.gather(
+        workspace_http_client.get("/me", headers=headers),
+        workspace_http_client.get("/me", headers=headers),
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["user_id"] == second.json()["user_id"]
+    assert first.json()["workspace_id"] == second.json()["workspace_id"]
 
 
 @pytest.mark.asyncio

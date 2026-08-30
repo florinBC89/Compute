@@ -27,7 +27,9 @@ async def get_me(
     workspace = await session.get(Workspace, current_user.workspace_id)
     projects = (
         await session.execute(
-            select(Project).where(Project.workspace_id == current_user.workspace_id)
+            select(Project)
+            .where(Project.workspace_id == current_user.workspace_id)
+            .order_by(Project.created_at.desc())
         )
     ).scalars().all()
 

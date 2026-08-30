@@ -18,6 +18,7 @@ from dataclasses import dataclass
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
@@ -49,26 +50,50 @@ async def _provision_workspace(session: AsyncSession, user: User) -> uuid.UUID:
     return workspace.id
 
 
+async def _get_user_by_supabase_id(
+    session: AsyncSession, supabase_user_id: str
+) -> User | None:
+    return (
+        await session.execute(
+            select(User).where(User.supabase_user_id == supabase_user_id)
+        )
+    ).scalars().first()
+
+
 async def resolve_current_user(
     token: str = Depends(bearer_token),
     session: AsyncSession = Depends(get_session),
 ) -> CurrentUser:
     claims = verify_supabase_jwt(token)
 
-    user = (
-        await session.execute(
-            select(User).where(User.supabase_user_id == claims.supabase_user_id)
-        )
-    ).scalars().first()
+    user = await _get_user_by_supabase_id(session, claims.supabase_user_id)
+    first_login = user is None
 
-    if user is None:
+    if first_login:
         user = User(
             id=uuid.uuid4(),
             supabase_user_id=claims.supabase_user_id,
             email=claims.email,
         )
         session.add(user)
-        await session.flush()
+        try:
+            await session.flush()
+        except IntegrityError:
+            # Lost a race with a concurrent first-login request for the same
+            # Supabase user (e.g. two authenticated requests firing on the
+            # first page load) -- a UNIQUE violation here means the other
+            # request's insert already committed (Postgres only raises the
+            # conflict after the blocking transaction resolves), so its
+            # user/workspace/membership are all there to find. Roll back our
+            # own failed insert and use theirs instead of 500ing a user whose
+            # login genuinely succeeded.
+            await session.rollback()
+            user = await _get_user_by_supabase_id(session, claims.supabase_user_id)
+            if user is None:
+                raise
+            first_login = False
+
+    if first_login:
         workspace_id = await _provision_workspace(session, user)
     else:
         membership = (

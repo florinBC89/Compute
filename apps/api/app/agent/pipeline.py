@@ -37,7 +37,10 @@ import uuid
 from typing import Any, Awaitable, Callable
 
 from computelayer import ComputeLayer
+from computelayer.context import collect_metrics
+from computelayer.pricing import estimate_cost
 from computelayer.result import ComputeResult
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent import job_control, tavily
@@ -128,6 +131,20 @@ FACT_CHECK_SYSTEM = (
     "any inconsistencies or unsupported claims in 1-2 sentences, or confirm "
     "the draft is consistent with the facts."
 )
+
+#: V0.3 conversation history: the short AI-generated conversation title
+#: (create_job's plain-truncated-text fallback is what shows until this
+#: replaces it -- see _maybe_title_project).
+TITLE_SYSTEM = (
+    "Summarize the user's request in 2-4 words as a short conversation "
+    "title. No punctuation, no quotes, no trailing period. Reply with "
+    "just the title."
+)
+TITLE_MAX_TOKENS = 12
+#: Upper bound on how long run_research_pipeline's `finally` will wait for
+#: a still-in-flight title-gen call before giving up on it -- see the
+#: finally block below for why this must never be unbounded.
+TITLE_TASK_TIMEOUT_SECONDS = 5.0
 
 
 async def _provision_internal_key(
@@ -281,6 +298,59 @@ def _llm_step(
     return lambda: complete_fn(system=system, prompt=prompt, max_tokens=MAX_TOKENS_PER_STEP)
 
 
+async def _maybe_title_project(
+    session_factory: async_sessionmaker[AsyncSession], job: Job
+) -> None:
+    """V0.3 conversation history: the first job in a project gets an
+    AI-generated title, replacing create_job's plain-truncated-text
+    fallback. Launched as a fire-and-forget asyncio.create_task from
+    run_research_pipeline -- doesn't gate the main pipeline's progress,
+    and only ever runs once per project (the cheap COUNT check below).
+
+    Deliberately NOT wrapped in cl.compute.run(): a title has no future
+    reuse value (each project's first message is unique by definition),
+    so there's nothing the reuse engine would ever do with it -- it's a
+    plain, uninstrumented call, with its own small cost added to
+    job.spent_usd directly for honest accounting.
+    """
+    async with session_factory() as session:
+        count = (
+            await session.execute(
+                select(func.count())
+                .select_from(Job)
+                .where(Job.project_id == job.project_id)
+            )
+        ).scalar_one()
+    if count != 1:
+        return  # not this project's first job -- already titled
+
+    try:
+        with collect_metrics() as metrics:
+            title = await openai_provider.complete(
+                system=TITLE_SYSTEM, prompt=job.task_text, max_tokens=TITLE_MAX_TOKENS
+            )
+    except Exception:
+        return  # a failed title generation should never surface as a job failure
+
+    title = title.strip().strip('"').strip("'").rstrip(".")
+    if not title:
+        return
+
+    cost_usd = metrics.cost_usd or estimate_cost(
+        openai_provider.MODEL, metrics.input_tokens, metrics.output_tokens
+    )
+
+    async with session_factory() as session:
+        project = await session.get(Project, job.project_id)
+        if project is not None:
+            project.name = title
+            await session.commit()
+
+    if cost_usd:
+        await job_control.add_spend(session_factory, job.id, cost_usd)
+    await job_control.emit(session_factory, job.id, "PROJECT_TITLED", {"name": title})
+
+
 async def run_research_pipeline(
     job: Job,
     session_factory: async_sessionmaker[AsyncSession],
@@ -304,6 +374,12 @@ async def run_research_pipeline(
     transport = transport_factory(api_key, project_slug) if transport_factory else None
 
     await job_control.emit(session_factory, job.id, "STARTED")
+    # Fire-and-forget: runs concurrently with the steps below, doesn't
+    # gate them. Held in a variable (not just `asyncio.create_task(...)`
+    # on its own) so it can't be garbage-collected mid-flight -- a real
+    # asyncio gotcha -- and awaited in `finally` so the worker doesn't move
+    # on to the next job while this is still writing to the DB.
+    title_task = asyncio.create_task(_maybe_title_project(session_factory, job))
 
     try:
         async with ComputeLayer(
@@ -460,3 +536,12 @@ async def run_research_pipeline(
 
     finally:
         await _deactivate_key(session_factory, api_key_id)
+        # Bounded, not an unconditional await: title_task shares whichever
+        # provider the job used, so an unusually slow (or, worst case,
+        # hung) real call there must never stall the *job's* own
+        # completion/cancellation -- asyncio.wait_for cancels it on
+        # timeout. In the ordinary case this never fires: one quick
+        # title-gen call finishes well before the full multi-step pipeline
+        # does, title_task is already done by the time we get here.
+        with contextlib.suppress(BaseException):
+            await asyncio.wait_for(title_task, timeout=TITLE_TASK_TIMEOUT_SECONDS)

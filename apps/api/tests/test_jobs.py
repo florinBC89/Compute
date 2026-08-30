@@ -95,9 +95,13 @@ async def auth_headers(workspace_http_client, keypair):
 
 
 @pytest.mark.asyncio
-async def test_create_job_auto_provisions_default_project(
+async def test_create_job_auto_provisions_a_new_project(
     workspace_http_client, auth_headers
 ):
+    """V0.3 conversation history: a job created with no project_id starts
+    a brand-new conversation (Project), fallback-named from the task text
+    -- not a single shared "default" project anymore.
+    """
     response = await workspace_http_client.post(
         "/jobs", json={"task_text": "research today's AI news"}, headers=auth_headers
     )
@@ -109,9 +113,72 @@ async def test_create_job_auto_provisions_default_project(
     assert body["spent_usd"] == 0.0
     assert body["cost_cap_usd"] == 0.50
     assert uuid.UUID(body["id"])
+    assert body["project_name"] == "research today's AI news"
 
     me = await workspace_http_client.get("/me", headers=auth_headers)
-    assert [p["slug"] for p in me.json()["projects"]] == ["default"]
+    projects = me.json()["projects"]
+    assert len(projects) == 1
+    assert projects[0]["id"] == body["project_id"]
+    assert projects[0]["slug"].startswith("conv-")
+
+
+@pytest.mark.asyncio
+async def test_omitting_project_id_creates_a_separate_conversation_each_time(
+    workspace_http_client, auth_headers
+):
+    first = await workspace_http_client.post(
+        "/jobs", json={"task_text": "first conversation"}, headers=auth_headers
+    )
+    second = await workspace_http_client.post(
+        "/jobs", json={"task_text": "second conversation"}, headers=auth_headers
+    )
+
+    assert first.json()["project_id"] != second.json()["project_id"]
+
+    me = await workspace_http_client.get("/me", headers=auth_headers)
+    assert len(me.json()["projects"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_explicit_project_id_attaches_to_the_same_conversation(
+    workspace_http_client, auth_headers
+):
+    first = await workspace_http_client.post(
+        "/jobs", json={"task_text": "first turn"}, headers=auth_headers
+    )
+    project_id = first.json()["project_id"]
+
+    second = await workspace_http_client.post(
+        "/jobs",
+        json={"task_text": "second turn", "project_id": project_id},
+        headers=auth_headers,
+    )
+
+    assert second.json()["project_id"] == project_id
+    me = await workspace_http_client.get("/me", headers=auth_headers)
+    assert len(me.json()["projects"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_project_id_from_another_workspace_is_not_found(
+    workspace_http_client, keypair
+):
+    owner_token = _make_token(keypair, sub=str(uuid.uuid4()), email="owner2@example.com")
+    other_token = _make_token(keypair, sub=str(uuid.uuid4()), email="other2@example.com")
+
+    created = await workspace_http_client.post(
+        "/jobs",
+        json={"task_text": "owner's conversation"},
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    project_id = created.json()["project_id"]
+
+    response = await workspace_http_client.post(
+        "/jobs",
+        json={"task_text": "trying to hijack", "project_id": project_id},
+        headers={"Authorization": f"Bearer {other_token}"},
+    )
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -212,7 +279,14 @@ async def fake_openai(monkeypatch):
     calls: list[float] = []  # cost_usd per call, in order; default 0.001 each
 
     async def _fake_complete(*, system: str, prompt: str, max_tokens: int = 400) -> str:
-        cost = calls.pop(0) if calls else 0.001
+        # app.agent.pipeline._maybe_title_project (V0.3) also calls
+        # openai_provider.complete concurrently with the real pipeline
+        # steps, using a much smaller max_tokens (TITLE_MAX_TOKENS=12 vs
+        # MAX_TOKENS_PER_STEP=400) -- excluded from the queue so a test's
+        # ordered `calls.append(...)` list still lines up with the real
+        # step it's actually targeting, regardless of asyncio scheduling.
+        is_title_call = max_tokens < 50
+        cost = 0.0001 if is_title_call else (calls.pop(0) if calls else 0.001)
         record_llm_call(
             LLMCall(
                 model=openai_provider.MODEL,
@@ -375,11 +449,82 @@ async def test_pipeline_runs_to_completion(
             .all()
         )
         event_types = [e["event_type"] for e in events]
-        assert event_types == (
+        # PROJECT_TITLED (V0.3 conversation history) fires concurrently with
+        # the main steps via a fire-and-forget asyncio.create_task -- it's
+        # guaranteed to have landed somewhere by the time the job finishes
+        # (awaited in run_research_pipeline's `finally`), but not at a fixed
+        # position relative to the step events, so it's filtered out here
+        # rather than asserted into an exact sequence.
+        assert [e for e in event_types if e != "PROJECT_TITLED"] == (
             ["QUEUED", "STARTED"]
             + ["STEP_STARTED", "STEP_FINISHED"] * 6
             + ["SUCCEEDED"]
         )
+        assert "PROJECT_TITLED" in event_types
+
+
+@pytest.mark.asyncio
+async def test_project_is_titled_once_not_on_every_turn(
+    workspace_http_client,
+    auth_headers,
+    engine,
+    pipeline_transport_factory,
+    fake_openai,
+    fake_tavily,
+):
+    """V0.3 conversation history: only a project's first job triggers
+    _maybe_title_project -- a second turn in the same conversation must
+    not re-title it (or spend on a second title-gen call).
+    """
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app import worker
+    from app.models import JobEvent, Project
+
+    task_text = "Plan a birthday party"
+    created = await workspace_http_client.post(
+        "/jobs", json={"task_text": task_text}, headers=auth_headers
+    )
+    project_id = created.json()["project_id"]
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    claimed = await worker._claim_next_job(session_factory)
+    await worker._run_one(session_factory, claimed, transport_factory=pipeline_transport_factory)
+
+    expected_title = f"[fake completion for: {task_text}]"
+    async with session_factory() as session:
+        project = await session.get(Project, uuid.UUID(project_id))
+        assert project.name == expected_title
+
+    second = await workspace_http_client.post(
+        "/jobs",
+        json={"task_text": "second turn", "project_id": project_id},
+        headers=auth_headers,
+    )
+    second_job_id = uuid.UUID(second.json()["id"])
+
+    claimed_second = await worker._claim_next_job(session_factory)
+    assert claimed_second is not None and claimed_second.id == second_job_id
+    await worker._run_one(
+        session_factory, claimed_second, transport_factory=pipeline_transport_factory
+    )
+
+    async with session_factory() as session:
+        project = await session.get(Project, uuid.UUID(project_id))
+        # Unchanged -- the second turn didn't trigger another title-gen call.
+        assert project.name == expected_title
+
+        titled_events = (
+            await session.execute(
+                select(JobEvent).where(
+                    JobEvent.job_id.in_([claimed.id, second_job_id]),
+                    JobEvent.event_type == "PROJECT_TITLED",
+                )
+            )
+        ).scalars().all()
+        assert len(titled_events) == 1
+        assert titled_events[0].payload["name"] == expected_title
 
 
 @pytest.mark.asyncio
@@ -475,7 +620,11 @@ async def test_pipeline_stops_when_cost_cap_reached(
         job = await session.get(Job, job_id)
         assert job.status == "FAILED"
         assert job.error_message == "cost cap reached"
-        assert float(job.spent_usd) == pytest.approx(0.05)
+        # extract_facts's $0.05 plus the small, separately-tracked
+        # PROJECT_TITLED title-gen cost (V0.3, ~$0.0001 per fake_openai's
+        # is_title_call branch) -- both land in spent_usd, hence the
+        # wider absolute tolerance rather than the default relative one.
+        assert float(job.spent_usd) == pytest.approx(0.05, abs=0.001)
 
         # The artifacts already produced stay -- and reusable -- even
         # though the job overall failed on cost.

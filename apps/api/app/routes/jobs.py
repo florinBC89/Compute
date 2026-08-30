@@ -28,36 +28,46 @@ from app.services.user_scope import CurrentUser, resolve_current_user
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
-#: Every user's first task needs somewhere to land before they've named a
-#: project of their own -- Phase 6 adds real project creation/selection UI;
-#: until then, one find-or-create "default" project per workspace is enough
-#: to prove the job/worker/SSE plumbing.
-DEFAULT_PROJECT_SLUG = "default"
-
 TERMINAL_STATUSES = {"SUCCEEDED", "FAILED", "CANCELLED"}
 SSE_POLL_INTERVAL_SECONDS = 0.5
 
+#: Truncated to this length as the immediate fallback conversation title --
+#: replaced by the AI-generated one (app.agent.pipeline._maybe_title_project)
+#: once that completes, usually within a couple seconds.
+FALLBACK_TITLE_LENGTH = 40
 
-async def _find_or_create_default_project(
-    session: AsyncSession, workspace_id: uuid.UUID
+
+async def _resolve_or_create_project(
+    session: AsyncSession, workspace_id: uuid.UUID, project_id: str | None, task_text: str
 ) -> Project:
-    project = (
-        await session.execute(
-            select(Project).where(
-                Project.workspace_id == workspace_id,
-                Project.slug == DEFAULT_PROJECT_SLUG,
+    """V0.3 conversation history: a conversation IS a Project. An explicit
+    `project_id` attaches this turn to an existing conversation (ownership
+    verified); omitted, a brand-new one is created -- this is what makes
+    the workspace app's "New" and its per-conversation history both work
+    without any project-management UI of their own.
+    """
+    if project_id:
+        try:
+            project_uuid = uuid.UUID(project_id)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="project not found"
+            ) from exc
+        project = await session.get(Project, project_uuid)
+        if project is None or project.workspace_id != workspace_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="project not found"
             )
-        )
-    ).scalars().first()
-    if project is None:
-        project = Project(
-            id=uuid.uuid4(),
-            workspace_id=workspace_id,
-            name="My research",
-            slug=DEFAULT_PROJECT_SLUG,
-        )
-        session.add(project)
-        await session.flush()
+        return project
+
+    project = Project(
+        id=uuid.uuid4(),
+        workspace_id=workspace_id,
+        name=task_text[:FALLBACK_TITLE_LENGTH].strip(),
+        slug=f"conv-{uuid.uuid4().hex[:12]}",
+    )
+    session.add(project)
+    await session.flush()
     return project
 
 
@@ -90,7 +100,10 @@ async def create_job(
             status_code=status.HTTP_400_BAD_REQUEST, detail="task_text is required"
         )
 
-    project = await _find_or_create_default_project(session, current_user.workspace_id)
+    task_text = body.task_text.strip()
+    project = await _resolve_or_create_project(
+        session, current_user.workspace_id, body.project_id, task_text
+    )
     settings = get_settings()
 
     job = Job(
@@ -98,14 +111,19 @@ async def create_job(
         workspace_id=current_user.workspace_id,
         project_id=project.id,
         user_id=current_user.user_id,
-        task_text=body.task_text.strip(),
+        task_text=task_text,
         model_preference=body.model_preference,
         cost_cap_usd=settings.default_job_cost_cap_usd,
     )
     session.add(job)
     await session.flush()
     session.add(JobEvent(job_id=job.id, event_type="QUEUED", payload={}))
-    return to_job_response(job)
+    return to_job_response(job, project.name)
+
+
+async def _project_name(session: AsyncSession, project_id: uuid.UUID) -> str:
+    project = await session.get(Project, project_id)
+    return project.name if project is not None else ""
 
 
 @router.get("/{job_id}", response_model=JobResponse)
@@ -114,7 +132,8 @@ async def get_job(
     current_user: CurrentUser = Depends(resolve_current_user),
     session: AsyncSession = Depends(get_session),
 ) -> JobResponse:
-    return to_job_response(await _get_owned_job(session, job_id, current_user))
+    job = await _get_owned_job(session, job_id, current_user)
+    return to_job_response(job, await _project_name(session, job.project_id))
 
 
 @router.post("/{job_id}/cancel", response_model=JobResponse)
@@ -137,7 +156,7 @@ async def cancel_job(
         job.status = "CANCELLED"
         job.finished_at = utcnow()
         session.add(JobEvent(job_id=job.id, event_type="CANCELLED", payload={}))
-    return to_job_response(job)
+    return to_job_response(job, await _project_name(session, job.project_id))
 
 
 @router.get("/{job_id}/events")

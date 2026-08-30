@@ -13,6 +13,10 @@ JobStatus = Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]
 class JobCreateRequest(BaseModel):
     task_text: str
     model_preference: str | None = None
+    #: V0.3 conversation history: attach this turn to an existing
+    #: conversation (Project). Omitted/None -> a brand-new conversation is
+    #: created for it. See app.routes.jobs.create_job.
+    project_id: str | None = None
 
 
 class JobResponse(BaseModel):
@@ -28,6 +32,10 @@ class JobResponse(BaseModel):
     cost_cap_usd: float
     run_id: str | None = None
     project_id: str
+    #: The conversation's current title (V0.3) -- a fallback (truncated
+    #: task_text) until the async AI-generated title replaces it; see the
+    #: PROJECT_TITLED job_event for the live update.
+    project_name: str
 
 
 class JobList(BaseModel):

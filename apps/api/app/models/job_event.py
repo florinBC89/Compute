@@ -24,6 +24,9 @@ JOB_EVENT_TYPES = (
     "SUCCEEDED",
     "FAILED",
     "CANCELLED",
+    #: V0.3 conversation history: the conversation's AI-generated title
+    #: became available -- see app.agent.pipeline._maybe_title_project.
+    "PROJECT_TITLED",
 )
 
 

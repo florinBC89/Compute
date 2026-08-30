@@ -22,7 +22,12 @@ from app.schemas.job import JobResponse
 __all__ = ["to_job_response", "list_project_jobs"]
 
 
-def to_job_response(job: Job) -> JobResponse:
+def to_job_response(job: Job, project_name: str) -> JobResponse:
+    """`project_name` is passed explicitly rather than read off a `Job.project`
+    relationship -- this codebase fetches related rows via separate queries
+    throughout (see app.services.artifacts/runs), not ORM relationships, and
+    every caller already has the project in hand (or fetches it once for a
+    whole list of jobs, e.g. app.routes.workspace.workspace_project_jobs)."""
     return JobResponse(
         id=str(job.id),
         status=job.status,
@@ -34,6 +39,7 @@ def to_job_response(job: Job) -> JobResponse:
         cost_cap_usd=float(job.cost_cap_usd),
         run_id=str(job.run_id) if job.run_id else None,
         project_id=str(job.project_id),
+        project_name=project_name,
     )
 
 
