@@ -1,6 +1,7 @@
 """SQLAlchemy 2.x models for the schema in spec §6."""
 
 from app.models.base import Base
+from app.models.acc import Acc
 from app.models.api_key import ApiKey
 from app.models.artifact_policy import ArtifactTypePolicy
 from app.models.computation import Computation
@@ -17,6 +18,7 @@ from app.models.workspace_member import WorkspaceMember
 
 __all__ = [
     "Base",
+    "Acc",
     "ApiKey",
     "ArtifactTypePolicy",
     "Computation",
