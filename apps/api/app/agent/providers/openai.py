@@ -16,6 +16,7 @@ zero changes to the reuse/cost-ledger engine to attribute real spend.
 from __future__ import annotations
 
 import time
+from typing import Awaitable, Callable
 
 from computelayer.context import LLMCall, record_llm_call
 from computelayer.pricing import estimate_cost
@@ -73,3 +74,57 @@ async def complete(*, system: str, prompt: str, max_tokens: int = 400) -> str:
     )
 
     return (response.choices[0].message.content or "").strip()
+
+
+async def stream_complete(
+    *,
+    system: str,
+    history: list[dict[str, str]],
+    message: str,
+    max_tokens: int = 400,
+    on_delta: Callable[[str], Awaitable[None]],
+) -> str:
+    client = _get_client()
+    started = time.perf_counter()
+
+    messages = [{"role": "system", "content": system}]
+    for turn in history:
+        messages.append({"role": turn["role"], "content": turn["content"]})
+    messages.append({"role": "user", "content": message})
+
+    stream = await client.chat.completions.create(
+        model=_REAL_MODEL,
+        max_tokens=max_tokens,
+        messages=messages,
+        stream=True,
+        stream_options={"include_usage": True},
+    )
+
+    full_text = ""
+    input_tokens = 0
+    output_tokens = 0
+    async for event in stream:
+        if event.choices:
+            delta = event.choices[0].delta.content
+            if delta:
+                full_text += delta
+                await on_delta(delta)
+        if event.usage is not None:
+            input_tokens = event.usage.prompt_tokens
+            output_tokens = event.usage.completion_tokens
+
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    cost_usd = estimate_cost(MODEL, input_tokens, output_tokens)
+
+    record_llm_call(
+        LLMCall(
+            model=MODEL,
+            provider="openai",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
+            latency_ms=latency_ms,
+        )
+    )
+
+    return full_text.strip()

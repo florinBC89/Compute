@@ -33,46 +33,19 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import uuid
 from typing import Any, Awaitable, Callable
 
 from computelayer import ComputeLayer
-from computelayer.context import collect_metrics
-from computelayer.pricing import estimate_cost
-from computelayer.result import ComputeResult
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agent import job_control, tavily
+from app.agent import job_control, tavily, turn_common
 from app.agent.job_control import CostCapReached, JobCancelled
-from app.agent.providers import anthropic as anthropic_provider
-from app.agent.providers import gemini as gemini_provider
-from app.agent.providers import openai as openai_provider
+from app.agent.turn_common import PROVIDER_MODULES
 from app.config import get_settings
-from app.models import ApiKey, Job, Project
+from app.models import Job
 from app.models.base import utcnow
-from app.services.scope import KEY_PREFIX_LENGTH, generate_api_key, hash_api_key
 
 __all__ = ["run_research_pipeline", "CostCapReached", "JobCancelled"]
-
-#: job.model_preference -> provider module. Unset or unrecognized falls back
-#: to DEFAULT_PROVIDER -- today's only choice before this phase, and still
-#: the safe default once there are three.
-#:
-#: Resolved to a *module*, not a `(complete_fn, MODEL)` tuple captured at
-#: import time: a captured function reference silently stops following
-#: `monkeypatch.setattr(openai_provider, "complete", ...)` in tests (the
-#: patch changes the module's attribute; a tuple built once at import time
-#: already has a copy of the *old* value) -- exactly the class of bug that
-#: let a cost-cap test call the real OpenAI API instead of the fixture's
-#: mock. Looking up `.complete`/`.MODEL` on the module fresh in
-#: `_resolve_provider` is what keeps monkeypatching working.
-PROVIDER_MODULES = {
-    "openai": openai_provider,
-    "anthropic": anthropic_provider,
-    "gemini": gemini_provider,
-}
-DEFAULT_PROVIDER = "openai"
 
 #: The picker value that selects static per-step routing instead of one
 #: provider for the whole run.
@@ -94,11 +67,6 @@ AUTO_ROUTING: dict[str, str] = {
 }
 
 MAX_TOKENS_PER_STEP = 400
-
-#: How often _run_step re-checks whether the job is still RUNNING while a
-#: step is actually in flight (Phase 10). Cheap enough to poll frequently:
-#: it only runs for the duration of one step, not the whole job.
-CANCELLATION_POLL_SECONDS = 0.5
 
 #: Search results are reused for an hour before a re-run treats them as
 #: stale -- long enough that switching models mid-project doesn't trigger a
@@ -132,223 +100,28 @@ FACT_CHECK_SYSTEM = (
     "the draft is consistent with the facts."
 )
 
-#: V0.3 conversation history: the short AI-generated conversation title
-#: (create_job's plain-truncated-text fallback is what shows until this
-#: replaces it -- see _maybe_title_project).
-TITLE_SYSTEM = (
-    "Summarize the user's request in 2-4 words as a short conversation "
-    "title. No punctuation, no quotes, no trailing period. Reply with "
-    "just the title."
-)
-TITLE_MAX_TOKENS = 12
 #: Upper bound on how long run_research_pipeline's `finally` will wait for
 #: a still-in-flight title-gen call before giving up on it -- see the
 #: finally block below for why this must never be unbounded.
 TITLE_TASK_TIMEOUT_SECONDS = 5.0
 
 
-async def _provision_internal_key(
-    session_factory: async_sessionmaker[AsyncSession],
-    workspace_id: uuid.UUID,
-    project_id: uuid.UUID,
-) -> tuple[str, uuid.UUID]:
-    """A fresh, single-job API key -- consistent with how every other API
-    key in this system works (plaintext known only at creation; see
-    app.provision's identical reasoning for invite keys). Deactivated in
-    `run_research_pipeline`'s `finally` block once the job is done, so it
-    can't be reused even if it somehow leaked.
-    """
-    plaintext = generate_api_key("live")
-    api_key_id = uuid.uuid4()
-    async with session_factory() as session:
-        session.add(
-            ApiKey(
-                id=api_key_id,
-                workspace_id=workspace_id,
-                project_id=project_id,
-                name="internal worker (one job)",
-                key_prefix=plaintext[:KEY_PREFIX_LENGTH],
-                key_hash=hash_api_key(plaintext),
-            )
-        )
-        await session.commit()
-    return plaintext, api_key_id
-
-
-async def _deactivate_key(
-    session_factory: async_sessionmaker[AsyncSession], api_key_id: uuid.UUID
-) -> None:
-    async with session_factory() as session:
-        api_key = await session.get(ApiKey, api_key_id)
-        if api_key is not None:
-            api_key.active = False
-            await session.commit()
-
-
-async def _project_slug(
-    session_factory: async_sessionmaker[AsyncSession], project_id: uuid.UUID
-) -> str:
-    async with session_factory() as session:
-        project = await session.get(Project, project_id)
-        return project.slug
-
-
-async def _set_run_id(
-    session_factory: async_sessionmaker[AsyncSession], job_id: uuid.UUID, run_id: str
-) -> None:
-    async with session_factory() as session:
-        job = await session.get(Job, job_id)
-        job.run_id = uuid.UUID(run_id)
-        await session.commit()
-
-
-async def _watch_for_cancellation(
-    session_factory: async_sessionmaker[AsyncSession], job_id: uuid.UUID
-) -> None:
-    """Polls until the job is no longer RUNNING. Raced against an in-flight
-    step in _run_step (Phase 10) so a Cancel click actually interrupts a
-    slow/hung provider call instead of waiting for it to finish or time out
-    on its own -- before this, `job_control.guard()`'s pre-step check meant
-    cancellation only took effect at the *next* step boundary, so a single
-    stuck provider call could make Cancel silently do nothing for as long as
-    that call kept running.
-    """
-    while await job_control.is_still_running(session_factory, job_id):
-        await asyncio.sleep(CANCELLATION_POLL_SECONDS)
-
-
-async def _run_step(
-    cl: ComputeLayer,
-    session_factory: async_sessionmaker[AsyncSession],
-    job_id: uuid.UUID,
-    *,
-    name: str,
-    inputs: dict,
-    fn: Callable[[], Awaitable[Any]],
-    artifact_type: str | None,
-    model: str | None = None,
-    ttl: int | None = None,
-    cross_model_reuse: bool = True,
-) -> ComputeResult:
-    await job_control.guard(session_factory, job_id)
-    await job_control.set_current_step(session_factory, job_id, name)
-    await job_control.emit(session_factory, job_id, "STEP_STARTED", {"step": name})
-
-    step_task = asyncio.create_task(
-        cl.compute.run(
-            name=name,
-            inputs=inputs,
-            fn=fn,
-            model=model,
-            artifact_type=artifact_type,
-            cross_model_reuse=cross_model_reuse,
-            ttl=ttl,
-        )
-    )
-    watch_task = asyncio.create_task(_watch_for_cancellation(session_factory, job_id))
-    try:
-        done, _ = await asyncio.wait(
-            {step_task, watch_task}, return_when=asyncio.FIRST_COMPLETED
-        )
-        if step_task not in done:
-            # Cancelled mid-call: stop waiting on the provider rather than
-            # letting it run to completion. Cancelling step_task throws
-            # CancelledError into cl.compute.run() at its current await
-            # point; Compute.run()'s own `except BaseException` handler
-            # records the computation as FAILED and releases the stampede
-            # lock before that propagates here.
-            step_task.cancel()
-            with contextlib.suppress(BaseException):
-                await step_task
-            raise JobCancelled()
-        result = step_task.result()
-    finally:
-        watch_task.cancel()
-        with contextlib.suppress(BaseException):
-            await watch_task
-
-    if result.cost_usd:
-        await job_control.add_spend(session_factory, job_id, result.cost_usd)
-    await job_control.emit(
-        session_factory, job_id, "STEP_FINISHED", {"step": name, "cost_usd": result.cost_usd}
-    )
-    return result
-
-
-def _resolve_provider(model_preference: str | None) -> tuple[Callable[..., Awaitable[str]], str]:
-    module = PROVIDER_MODULES.get(model_preference or "", PROVIDER_MODULES[DEFAULT_PROVIDER])
-    return module.complete, module.MODEL
-
-
 def _resolve_step_provider(
     model_preference: str | None, step_name: str
 ) -> tuple[Callable[..., Awaitable[str]], str]:
     """Auto mode looks the step up in AUTO_ROUTING; every other preference
-    (or an unrecognized one, via _resolve_provider's own fallback) uses the
+    (or an unrecognized one, via resolve_provider's own fallback) uses the
     same provider for every step, exactly as before Phase 9.
     """
     if model_preference == AUTO_PREFERENCE:
-        return _resolve_provider(AUTO_ROUTING[step_name])
-    return _resolve_provider(model_preference)
+        return turn_common.resolve_provider(AUTO_ROUTING[step_name])
+    return turn_common.resolve_provider(model_preference)
 
 
 def _llm_step(
     complete_fn: Callable[..., Awaitable[str]], system: str, prompt: str
 ) -> Callable[[], Awaitable[str]]:
     return lambda: complete_fn(system=system, prompt=prompt, max_tokens=MAX_TOKENS_PER_STEP)
-
-
-async def _maybe_title_project(
-    session_factory: async_sessionmaker[AsyncSession], job: Job
-) -> None:
-    """V0.3 conversation history: the first job in a project gets an
-    AI-generated title, replacing create_job's plain-truncated-text
-    fallback. Launched as a fire-and-forget asyncio.create_task from
-    run_research_pipeline -- doesn't gate the main pipeline's progress,
-    and only ever runs once per project (the cheap COUNT check below).
-
-    Deliberately NOT wrapped in cl.compute.run(): a title has no future
-    reuse value (each project's first message is unique by definition),
-    so there's nothing the reuse engine would ever do with it -- it's a
-    plain, uninstrumented call, with its own small cost added to
-    job.spent_usd directly for honest accounting.
-    """
-    async with session_factory() as session:
-        count = (
-            await session.execute(
-                select(func.count())
-                .select_from(Job)
-                .where(Job.project_id == job.project_id)
-            )
-        ).scalar_one()
-    if count != 1:
-        return  # not this project's first job -- already titled
-
-    try:
-        with collect_metrics() as metrics:
-            title = await openai_provider.complete(
-                system=TITLE_SYSTEM, prompt=job.task_text, max_tokens=TITLE_MAX_TOKENS
-            )
-    except Exception:
-        return  # a failed title generation should never surface as a job failure
-
-    title = title.strip().strip('"').strip("'").rstrip(".")
-    if not title:
-        return
-
-    cost_usd = metrics.cost_usd or estimate_cost(
-        openai_provider.MODEL, metrics.input_tokens, metrics.output_tokens
-    )
-
-    async with session_factory() as session:
-        project = await session.get(Project, job.project_id)
-        if project is not None:
-            project.name = title
-            await session.commit()
-
-    if cost_usd:
-        await job_control.add_spend(session_factory, job.id, cost_usd)
-    await job_control.emit(session_factory, job.id, "PROJECT_TITLED", {"name": title})
 
 
 async def run_research_pipeline(
@@ -367,8 +140,8 @@ async def run_research_pipeline(
     transport can't be pre-built by the caller.
     """
     settings = get_settings()
-    project_slug = await _project_slug(session_factory, job.project_id)
-    api_key, api_key_id = await _provision_internal_key(
+    project_slug = await turn_common.project_slug(session_factory, job.project_id)
+    api_key, api_key_id = await turn_common.provision_internal_key(
         session_factory, job.workspace_id, job.project_id
     )
     transport = transport_factory(api_key, project_slug) if transport_factory else None
@@ -379,7 +152,7 @@ async def run_research_pipeline(
     # on its own) so it can't be garbage-collected mid-flight -- a real
     # asyncio gotcha -- and awaited in `finally` so the worker doesn't move
     # on to the next job while this is still writing to the DB.
-    title_task = asyncio.create_task(_maybe_title_project(session_factory, job))
+    title_task = asyncio.create_task(turn_common.maybe_title_project(session_factory, job))
 
     try:
         async with ComputeLayer(
@@ -389,10 +162,10 @@ async def run_research_pipeline(
             transport=transport,
         ) as cl:
             async with cl.run(external_run_id=str(job.id)) as run:
-                await _set_run_id(session_factory, job.id, run.id)
+                await turn_common.set_run_id(session_factory, job.id, run.id)
                 task = job.task_text
 
-                sources = await _run_step(
+                sources = await turn_common.run_computation(
                     cl,
                     session_factory,
                     job.id,
@@ -409,7 +182,7 @@ async def run_research_pipeline(
                 extract_facts_provider, extract_facts_model = _resolve_step_provider(
                     job.model_preference, "extract_facts"
                 )
-                facts = await _run_step(
+                facts = await turn_common.run_computation(
                     cl,
                     session_factory,
                     job.id,
@@ -427,7 +200,7 @@ async def run_research_pipeline(
                 research_provider, research_model = _resolve_step_provider(
                     job.model_preference, "research_background"
                 )
-                research = await _run_step(
+                research = await turn_common.run_computation(
                     cl,
                     session_factory,
                     job.id,
@@ -445,7 +218,7 @@ async def run_research_pipeline(
                 analyze_provider, analyze_model = _resolve_step_provider(
                     job.model_preference, "analyze"
                 )
-                analysis = await _run_step(
+                analysis = await turn_common.run_computation(
                     cl,
                     session_factory,
                     job.id,
@@ -472,7 +245,7 @@ async def run_research_pipeline(
                 write_draft_provider, write_draft_model = _resolve_step_provider(
                     job.model_preference, "write_draft"
                 )
-                draft = await _run_step(
+                draft = await turn_common.run_computation(
                     cl,
                     session_factory,
                     job.id,
@@ -491,7 +264,7 @@ async def run_research_pipeline(
                 fact_check_provider, fact_check_model = _resolve_step_provider(
                     job.model_preference, "fact_check"
                 )
-                await _run_step(
+                await turn_common.run_computation(
                     cl,
                     session_factory,
                     job.id,
@@ -525,17 +298,11 @@ async def run_research_pipeline(
         return  # status already CANCELLED, set externally -- nothing to do
 
     except CostCapReached:
-        async with session_factory() as session:
-            live_job = await session.get(Job, job.id)
-            if live_job.status == "RUNNING":
-                live_job.status = "FAILED"
-                live_job.error_message = "cost cap reached"
-                live_job.finished_at = utcnow()
-                await session.commit()
+        await turn_common.mark_failed(session_factory, job.id, "cost cap reached")
         await job_control.emit(session_factory, job.id, "FAILED", {"reason": "cost_cap"})
 
     finally:
-        await _deactivate_key(session_factory, api_key_id)
+        await turn_common.deactivate_key(session_factory, api_key_id)
         # Bounded, not an unconditional await: title_task shares whichever
         # provider the job used, so an unusually slow (or, worst case,
         # hung) real call there must never stall the *job's* own

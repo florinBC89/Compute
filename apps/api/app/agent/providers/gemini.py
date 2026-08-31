@@ -11,6 +11,7 @@ fast/cheap-tier successor.
 from __future__ import annotations
 
 import time
+from typing import Awaitable, Callable
 
 from computelayer.context import LLMCall, record_llm_call
 from computelayer.pricing import estimate_cost
@@ -64,3 +65,59 @@ async def complete(*, system: str, prompt: str, max_tokens: int = 400) -> str:
     )
 
     return (response.text or "").strip()
+
+
+async def stream_complete(
+    *,
+    system: str,
+    history: list[dict[str, str]],
+    message: str,
+    max_tokens: int = 400,
+    on_delta: Callable[[str], Awaitable[None]],
+) -> str:
+    client = _get_client()
+    started = time.perf_counter()
+
+    contents = [
+        types.Content(
+            role=("model" if turn["role"] == "assistant" else "user"),
+            parts=[types.Part(text=turn["content"])],
+        )
+        for turn in history
+    ]
+    contents.append(types.Content(role="user", parts=[types.Part(text=message)]))
+
+    stream = await client.aio.models.generate_content_stream(
+        model=_REAL_MODEL,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=system, max_output_tokens=max_tokens
+        ),
+    )
+
+    full_text = ""
+    input_tokens = 0
+    output_tokens = 0
+    async for chunk in stream:
+        if chunk.text:
+            full_text += chunk.text
+            await on_delta(chunk.text)
+        if chunk.usage_metadata:
+            input_tokens = chunk.usage_metadata.prompt_token_count
+            output_tokens = chunk.usage_metadata.candidates_token_count
+
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    cost_usd = estimate_cost(MODEL, input_tokens, output_tokens)
+
+    record_llm_call(
+        LLMCall(
+            model=MODEL,
+            provider="google",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
+            latency_ms=latency_ms,
+        )
+    )
+
+    return full_text.strip()

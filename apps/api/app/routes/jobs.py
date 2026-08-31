@@ -11,6 +11,8 @@ over SSE so the workspace app can show live progress without polling.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import json
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -18,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
+from app.agent import chat
 from app.config import get_settings
 from app.db import get_session, get_sessionmaker
 from app.models import Job, JobEvent, Project
@@ -203,3 +206,112 @@ async def stream_job_events(
             await asyncio.sleep(SSE_POLL_INTERVAL_SECONDS)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+async def _claim_chat_turn(session: AsyncSession, job_id: uuid.UUID) -> Job | None:
+    """Row-locked claim of one QUEUED job for a chat turn -- the SSE-route
+    equivalent of app.worker._claim_next_job's `FOR UPDATE SKIP LOCKED`
+    claim, but for exactly one already-known job rather than polling for
+    the oldest queued row. Returns None if the job was already claimed (or
+    is otherwise no longer QUEUED) by the time this runs, e.g. a duplicate
+    client request racing this one.
+    """
+    job = await session.get(Job, job_id, with_for_update=True)
+    if job is None or job.status != "QUEUED":
+        return None
+    job.status = "RUNNING"
+    job.started_at = utcnow()
+    await session.commit()
+    return job
+
+
+@router.get("/{job_id}/stream")
+async def stream_chat_turn(
+    job_id: str,
+    current_user: CurrentUser = Depends(resolve_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> StreamingResponse:
+    """V0.3 chat: claims a QUEUED job and runs one streamed chat turn
+    (app.agent.chat.run_chat_turn), relaying each delta straight to the
+    client over SSE as it's produced -- chat is now the default execution
+    path for every message, replacing the six-step research pipeline in the
+    live flow (app.agent.pipeline stays in the repo, undeployed, for a
+    possible future explicit research mode).
+
+    Ownership is checked up front using the request-scoped session, the
+    same as stream_job_events above; the claim itself and the turn both use
+    fresh short-lived sessions from get_sessionmaker() instead of holding
+    that one across a stream that can run for as long as the LLM call does.
+    """
+    # Ownership check up front using the request-scoped session -- mirrors
+    # stream_job_events's own comment above.
+    job = await _get_owned_job(session, job_id, current_user)
+    session_factory = get_sessionmaker()
+
+    async def chat_stream():
+        async with session_factory() as claim_session:
+            claimed = await _claim_chat_turn(claim_session, job.id)
+
+        if claimed is None:
+            # Lost the claim race (already RUNNING, or already terminal) --
+            # nothing to run; report the job's current state as-is.
+            async with session_factory() as final_session:
+                final_job = await final_session.get(Job, job.id)
+                project_name = await _project_name(final_session, final_job.project_id)
+            item = {
+                "type": "done",
+                "job": to_job_response(final_job, project_name).model_dump(),
+            }
+            yield f"data: {json.dumps(item)}\n\n"
+            return
+
+        delta_queue: asyncio.Queue = asyncio.Queue()
+        turn_task = asyncio.create_task(
+            chat.run_chat_turn(claimed, session_factory, delta_queue=delta_queue)
+        )
+
+        while True:
+            get_task = asyncio.create_task(delta_queue.get())
+            done, _pending = await asyncio.wait(
+                {get_task, turn_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+
+            if get_task in done:
+                item = get_task.result()
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item)}\n\n"
+                continue
+
+            # The turn finished before another delta arrived: stop waiting
+            # on the queue and drain whatever's already sitting in it
+            # (non-blocking -- nothing more will ever be pushed once the
+            # turn task is done) instead of awaiting a get() that might now
+            # never resolve.
+            get_task.cancel()
+            with contextlib.suppress(BaseException):
+                await get_task
+            while True:
+                try:
+                    item = delta_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+                if item is None:
+                    break
+                yield f"data: {json.dumps(item)}\n\n"
+            break
+
+        # Propagates any truly unexpected exception -- run_chat_turn is
+        # designed to never raise (every failure mode there ends in a
+        # FAILED job instead), so this should always be a no-op in
+        # practice; if it somehow isn't, let it surface rather than
+        # swallowing it silently.
+        await turn_task
+
+        async with session_factory() as final_session:
+            final_job = await final_session.get(Job, job.id)
+            project_name = await _project_name(final_session, final_job.project_id)
+        item = {"type": "done", "job": to_job_response(final_job, project_name).model_dump()}
+        yield f"data: {json.dumps(item)}\n\n"
+
+    return StreamingResponse(chat_stream(), media_type="text/event-stream")

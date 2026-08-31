@@ -10,6 +10,7 @@ so Compute.run()'s cost ledger picks it up automatically.
 from __future__ import annotations
 
 import time
+from typing import Awaitable, Callable
 
 from anthropic import AsyncAnthropic
 from computelayer.context import LLMCall, record_llm_call
@@ -64,3 +65,64 @@ async def complete(*, system: str, prompt: str, max_tokens: int = 400) -> str:
 
     text = "".join(block.text for block in response.content if block.type == "text")
     return text.strip()
+
+
+async def stream_complete(
+    *,
+    system: str,
+    history: list[dict[str, str]],
+    message: str,
+    max_tokens: int = 400,
+    on_delta: Callable[[str], Awaitable[None]],
+) -> str:
+    client = _get_client()
+    started = time.perf_counter()
+
+    messages: list[dict[str, object]] = [
+        {"role": turn["role"], "content": turn["content"]} for turn in history
+    ]
+    messages.append({"role": "user", "content": message})
+
+    if history:
+        last_history_content = messages[len(history) - 1]["content"]
+        messages[len(history) - 1]["content"] = [
+            {
+                "type": "text",
+                "text": last_history_content,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+
+    full_text = ""
+    input_tokens = 0
+    output_tokens = 0
+    async with client.messages.stream(
+        model=_REAL_MODEL,
+        max_tokens=max_tokens,
+        system=system,
+        messages=messages,
+    ) as stream:
+        async for event in stream:
+            if event.type == "content_block_delta" and event.delta.type == "text_delta":
+                full_text += event.delta.text
+                await on_delta(event.delta.text)
+            elif event.type == "message_start":
+                input_tokens = event.message.usage.input_tokens
+            elif event.type == "message_delta":
+                output_tokens = event.usage.output_tokens
+
+    latency_ms = int((time.perf_counter() - started) * 1000)
+    cost_usd = estimate_cost(MODEL, input_tokens, output_tokens)
+
+    record_llm_call(
+        LLMCall(
+            model=MODEL,
+            provider="anthropic",
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost_usd,
+            latency_ms=latency_ms,
+        )
+    )
+
+    return full_text.strip()

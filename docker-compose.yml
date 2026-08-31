@@ -67,30 +67,39 @@ services:
   # pipeline. Same image as `api` (same Dockerfile/build context), different
   # process -- there is no reason for these to be separate images, only
   # separate running processes.
-  worker:
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
-    depends_on:
-      postgres:
-        condition: service_healthy
-      api:
-        condition: service_started
-    environment:
-      DATABASE_URL: postgresql+asyncpg://computelayer:computelayer@postgres:5432/computelayer
-      REDIS_URL: redis://redis:6379/0
-      LOG_LEVEL: INFO
-      SUPABASE_URL: https://rpwmfhlmdscjpcrqqmyf.supabase.co
-      # Sibling `api` service, over the same HTTP protocol any external SDK
-      # user goes through (see app.agent.pipeline).
-      INTERNAL_API_URL: http://api:8000/v1
-      # Real keys, not committed: come from the repo-root .env (gitignored)
-      # via docker compose's built-in ${VAR} substitution.
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      TAVILY_API_KEY: ${TAVILY_API_KEY}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-    command: python -m app.worker
+  #
+  # V0.3: intentionally undeployed. Chat is now the default execution path
+  # for every message and runs inline, driven by a client holding open
+  # GET /jobs/{id}/stream (see app.agent.chat.run_chat_turn) -- there's no
+  # more QUEUED-job backlog for this poll loop to pick up in that flow. The
+  # research pipeline this worker drives (app.agent.pipeline) is kept in
+  # the repo, untouched, for a possible future explicit research mode; this
+  # service definition is left in place rather than deleted so re-enabling
+  # it later is a one-line uncomment.
+  # worker:
+  #   build:
+  #     context: .
+  #     dockerfile: apps/api/Dockerfile
+  #   depends_on:
+  #     postgres:
+  #       condition: service_healthy
+  #     api:
+  #       condition: service_started
+  #   environment:
+  #     DATABASE_URL: postgresql+asyncpg://computelayer:computelayer@postgres:5432/computelayer
+  #     REDIS_URL: redis://redis:6379/0
+  #     LOG_LEVEL: INFO
+  #     SUPABASE_URL: https://rpwmfhlmdscjpcrqqmyf.supabase.co
+  #     # Sibling `api` service, over the same HTTP protocol any external SDK
+  #     # user goes through (see app.agent.pipeline).
+  #     INTERNAL_API_URL: http://api:8000/v1
+  #     # Real keys, not committed: come from the repo-root .env (gitignored)
+  #     # via docker compose's built-in ${VAR} substitution.
+  #     OPENAI_API_KEY: ${OPENAI_API_KEY}
+  #     TAVILY_API_KEY: ${TAVILY_API_KEY}
+  #     ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+  #     GEMINI_API_KEY: ${GEMINI_API_KEY}
+  #   command: python -m app.worker
 
 volumes:
   postgres_data:

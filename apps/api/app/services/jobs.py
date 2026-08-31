@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Job
 from app.schemas.job import JobResponse
 
-__all__ = ["to_job_response", "list_project_jobs"]
+__all__ = ["to_job_response", "list_project_jobs", "build_chat_history"]
 
 
 def to_job_response(job: Job, project_name: str) -> JobResponse:
@@ -50,3 +50,32 @@ async def list_project_jobs(session: AsyncSession, project_id: uuid.UUID) -> lis
     """
     statement = select(Job).where(Job.project_id == project_id).order_by(Job.created_at)
     return list((await session.execute(statement)).scalars().all())
+
+
+async def build_chat_history(
+    session: AsyncSession, project_id: uuid.UUID, *, before_job_id: uuid.UUID | None = None
+) -> list[dict[str, str]]:
+    """Turn a project's Jobs into a role/content transcript for the chat-turn
+    `compute.run()` fingerprint.
+
+    Only SUCCEEDED jobs with a non-empty `answer_text` contribute turns.
+    Excluding everything else -- QUEUED/RUNNING/CANCELLED, FAILED, and the
+    degenerate SUCCEEDED-but-empty-answer case -- is what makes regenerating
+    the *same* message a guaranteed cache hit: a failed job leaves no slot in
+    the history, so it's absent from the fingerprint of every later
+    `compute.run()` call, and regenerating right after a failure naturally
+    computes fresh inputs (a real retry, correctly a cache MISS). Regenerating
+    a message whose prior attempt *succeeded*, on the other hand, walks the
+    exact same surviving history and reproduces a byte-identical fingerprint,
+    so it's served straight from cache instead of re-spending on the LLM.
+    """
+    jobs = await list_project_jobs(session, project_id)
+    history: list[dict[str, str]] = []
+    for job in jobs:
+        if before_job_id is not None and job.id == before_job_id:
+            break
+        if job.status != "SUCCEEDED" or not job.answer_text:
+            continue
+        history.append({"role": "user", "content": job.task_text})
+        history.append({"role": "assistant", "content": job.answer_text})
+    return history
