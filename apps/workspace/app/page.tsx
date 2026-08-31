@@ -14,7 +14,7 @@ export default async function HomePage() {
   const me = await getMe();
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden sm:flex-row">
+    <div className="flex h-dvh flex-col overflow-hidden sm:flex-row">
       <Sidebar email={me.email} projects={me.projects} currentProjectId={null} />
       <ChatThread initialProjectId={null} initialTurns={[]} initialTitle={null} />
     </div>

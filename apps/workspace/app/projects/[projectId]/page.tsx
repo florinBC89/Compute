@@ -25,7 +25,7 @@ export default async function ProjectPage({
   const project = me.projects.find((p) => p.id === params.projectId);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden sm:flex-row">
+    <div className="flex h-dvh flex-col overflow-hidden sm:flex-row">
       <Sidebar email={me.email} projects={me.projects} currentProjectId={params.projectId} />
       <ChatThread
         initialProjectId={params.projectId}
