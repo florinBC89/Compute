@@ -174,7 +174,7 @@ export default function TurnBubble({
           <button
             type="button"
             onClick={onRegenerate}
-            className="shrink-0 rounded-pill border border-chat-border-warm px-3.5 py-1 text-[13px] font-semibold text-chat-ink hover:bg-chat-warm"
+            className="shrink-0 text-[13px] font-normal text-chat-label hover:underline"
           >
             Regenerate
           </button>
