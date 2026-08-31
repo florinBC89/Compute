@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import type { GraphNode, RunSummary } from "@/lib/api";
-import AiOrb from "./AiOrb";
 import ModelSwitchPreview, { MODEL_LABELS, PROVIDER_MODEL_IDS } from "./ModelSwitchPreview";
 
 //: full model id (what GraphNode.model actually holds) -> short display
@@ -99,7 +98,19 @@ export default function ResultScreen({
     <div className="mt-4">
       {line ? (
         <div className="flex items-center gap-2.5">
-          <AiOrb size={34} />
+          {/* Same looping video as every other "Accurate is doing
+              something" spot (auth loading, empty-state hero, the
+              in-progress step list) instead of the static AiOrb -- one
+              consistent leading icon across every state in this area. */}
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+          <video
+            src="/videos/social-loading.mp4"
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="h-[34px] w-[34px] shrink-0 rounded-full object-cover"
+          />
           <span className="text-[16px] font-medium text-chat-ink">{line}</span>
         </div>
       ) : null}
