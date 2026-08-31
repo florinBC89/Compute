@@ -33,7 +33,7 @@ from app.agent.job_control import JobCancelled
 from app.agent.providers import anthropic as anthropic_provider
 from app.agent.providers import gemini as gemini_provider
 from app.agent.providers import openai as openai_provider
-from app.models import ApiKey, Job, Project
+from app.models import ApiKey, Job, JobEvent, Project
 from app.models.base import utcnow
 from app.services.scope import KEY_PREFIX_LENGTH, generate_api_key, hash_api_key
 
@@ -257,13 +257,23 @@ async def maybe_title_project(
     AI-generated title, replacing create_job's plain-truncated-text
     fallback. Meant to be launched as a fire-and-forget asyncio.create_task
     by the caller -- doesn't gate the caller's own progress, and only ever
-    runs once per project (the cheap COUNT check below).
+    runs once per project (the two checks below).
 
     Deliberately NOT wrapped in cl.compute.run(): a title has no future
     reuse value (each project's first message is unique by definition), so
     there's nothing the reuse engine would ever do with it -- it's a plain,
     uninstrumented call, with its own small cost added to job.spent_usd
     directly for honest accounting.
+
+    The COUNT check alone isn't enough once a job can be regenerated in
+    place (app.routes.jobs.regenerate_job resets the SAME job back to
+    QUEUED rather than creating a new one): a single-turn project's job
+    count stays 1 across every regenerate, which would otherwise re-title
+    (and re-bill) on every single click. The second check -- has *this*
+    job's id already emitted a PROJECT_TITLED event, in an earlier run
+    before it was reset -- is what actually distinguishes "never titled"
+    from "already titled, just regenerating." JobEvent rows are untouched
+    by a regenerate reset, so this survives it.
 
     `on_titled`, if given, is awaited right after the PROJECT_TITLED event
     is emitted -- a hook for a chat-turn caller that wants to push the new
@@ -278,8 +288,18 @@ async def maybe_title_project(
                 .where(Job.project_id == job.project_id)
             )
         ).scalar_one()
-    if count != 1:
-        return  # not this project's first job -- already titled
+        if count != 1:
+            return  # not this project's only job -- already titled elsewhere
+
+        already_titled = (
+            await session.execute(
+                select(func.count())
+                .select_from(JobEvent)
+                .where(JobEvent.job_id == job.id, JobEvent.event_type == "PROJECT_TITLED")
+            )
+        ).scalar_one()
+    if already_titled:
+        return  # this job already titled the project on an earlier run
 
     try:
         with collect_metrics() as metrics:

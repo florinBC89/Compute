@@ -400,12 +400,11 @@ async def test_regenerating_identical_message_is_a_cache_hit(
     items = []
     while not second_queue.empty():
         items.append(second_queue.get_nowait())
-    # PROJECT_TITLED can still fire again (turn_common.maybe_title_project
-    # re-titles on every call for a project with exactly one job -- an
-    # existing, separately-owned quirk, not what this test is about) --
-    # filtered out here so this test stays about the cache-HIT proof.
-    non_title_items = [item for item in items if item is None or item.get("type") != "title"]
-    assert non_title_items == [None]
+    # turn_common.maybe_title_project must NOT re-title on the second call:
+    # it already emitted PROJECT_TITLED for this exact job.id on the first
+    # run, and that JobEvent survives the regenerate reset -- re-firing here
+    # would be an unbilled-for-nothing regression this test guards against.
+    assert items == [None]
 
     async with session_factory() as session:
         job = await session.get(Job, job_id)
