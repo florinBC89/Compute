@@ -1,4 +1,5 @@
 import AccountMenu from "@/components/AccountMenu";
+import MobileNav from "@/components/MobileNav";
 import RecentConversations from "@/components/RecentConversations";
 import type { ProjectSummary } from "@/lib/api";
 
@@ -8,15 +9,20 @@ import type { ProjectSummary } from "@/lib/api";
 // Support have no backing page yet, so they render as static labels
 // rather than dead links. The account row opens a small menu (see
 // AccountMenu.tsx) whose only entry is sign out, since there's no other
-// account control in the design yet.
-const NAV_ITEMS = [
+// account control in the design yet. Exported so MobileNav.tsx's slide-out
+// overlay (the mobile Figma variant of this same nav) uses the identical
+// list rather than a second copy that could drift.
+export const NAV_ITEMS = [
   { href: "/", label: "New", icon: "/icons/nav-new.svg" },
   { href: "/ethicals", label: "Project", icon: "/icons/nav-chart.svg" },
   { href: null, label: "Reports", icon: "/icons/nav-reports.svg" },
   { href: null, label: "Overview", icon: "/icons/nav-chart.svg" },
 ] as const;
 
-function displayName(email: string): string {
+//: Exported alongside NAV_ITEMS -- MobileNav.tsx's account row needs the
+//: identical name for the identical user, not a second heuristic that
+//: could produce a different result.
+export function displayName(email: string): string {
   const local = email.split("@")[0] ?? email;
   // Take the leading run of letters only -- "bostan.florin89" -> "bostan",
   // not the raw local-part with its dot/digits still attached. No user
@@ -41,7 +47,9 @@ export default function Sidebar({
   const name = displayName(email);
 
   return (
-    <aside className="flex h-full w-[179px] shrink-0 flex-col bg-chat-warm">
+    <>
+      <MobileNav email={email} projects={projects} currentProjectId={currentProjectId} />
+      <aside className="hidden h-full w-[179px] shrink-0 flex-col bg-chat-warm sm:flex">
       <div className="px-5 pb-[54px] pt-8">
         <img src="/logo.svg" alt="Accurate" className="h-[19px] w-auto" />
       </div>
@@ -92,6 +100,7 @@ export default function Sidebar({
         </div>
         <AccountMenu name={name} />
       </div>
-    </aside>
+      </aside>
+    </>
   );
 }

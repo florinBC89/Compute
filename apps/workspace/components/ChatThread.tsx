@@ -288,7 +288,7 @@ export default function ChatThread({
           // sidebar width or viewport size. Widened 200px total (100px
           // past each edge of that column) while keeping the same center.
           <GradientBackground
-            className={`pointer-events-none fixed -bottom-[38vh] -z-10 block h-[75vh] transition-opacity duration-300 ${
+            className={`pointer-events-none fixed -bottom-[38vh] -z-10 hidden h-[75vh] transition-opacity duration-300 sm:block ${
               fadingOut || !gradientBox ? "opacity-0" : "opacity-100"
             }`}
             style={{
@@ -321,8 +321,9 @@ export default function ChatThread({
                 in, and the dots + tail mirror the reference. Only one
                 message is ever rendered -- it slides out, THEN the next
                 one slides in (see the greetingPhase effect above), so
-                they never overlap. */}
-            <div className="relative h-[112px] w-[386px] max-w-full overflow-hidden rounded-[20px] bg-chat-warm">
+                they never overlap. Desktop only -- the mobile empty-state
+                frame (Figma node 121:3667) omits this bubble entirely. */}
+            <div className="relative hidden h-[112px] w-[386px] max-w-full overflow-hidden rounded-[20px] bg-chat-warm sm:block">
               <p
                 key={`${greetingIndex}-${greetingPhase}`}
                 className={`absolute left-1/2 top-1/2 w-[342px] max-w-[calc(100%-44px)] text-center text-[16px] leading-[26px] text-chat-ink-soft ${
@@ -360,7 +361,7 @@ export default function ChatThread({
               loop
               muted
               playsInline
-              className="h-[112.5px] w-[112.5px] shrink-0 rounded-full object-cover"
+              className="h-[136.5px] w-[136.5px] shrink-0 rounded-full object-cover sm:h-[112.5px] sm:w-[112.5px]"
             />
             <h1 className="font-display max-w-[652px] text-[26px] font-medium text-chat-ink">
               Create, build, research or work with{" "}

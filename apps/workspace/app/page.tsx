@@ -1,22 +1,22 @@
-import { getMe, getProjectJobs } from "@/lib/api";
+import { getMe } from "@/lib/api";
 import ChatThread from "@/components/ChatThread";
 import Sidebar from "@/components/Sidebar";
 
 export const dynamic = "force-dynamic";
 
-// V0.3: the chat surface from the "Registered user" Figma flow. A user's
-// first-ever message auto-provisions their one project (see
-// app.routes.jobs._find_or_create_default_project) -- until then there's
-// nothing to fetch, so `me.projects` is empty and the thread starts empty.
+// V0.3: the chat surface from the "Registered user" Figma flow. "/" is
+// always a fresh, blank conversation -- both the true empty-workspace
+// state AND exactly what the sidebar's "New" link should do, so "New"
+// linking here needs no separate route or redirect logic. An existing
+// conversation is only ever reached via the sidebar's "Recent" list, at
+// /projects/[projectId].
 export default async function HomePage() {
   const me = await getMe();
-  const project = me.projects[0] ?? null;
-  const turns = project ? await getProjectJobs(project.id) : [];
 
   return (
-    <div className="flex">
-      <Sidebar email={me.email} />
-      <ChatThread initialProjectId={project?.id ?? null} initialTurns={turns} />
+    <div className="flex h-screen flex-col overflow-hidden sm:flex-row">
+      <Sidebar email={me.email} projects={me.projects} currentProjectId={null} />
+      <ChatThread initialProjectId={null} initialTurns={[]} initialTitle={null} />
     </div>
   );
 }
