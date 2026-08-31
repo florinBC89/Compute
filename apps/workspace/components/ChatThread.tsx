@@ -382,7 +382,9 @@ export default function ChatThread({
               />
             </div>
 
-            <div className="flex items-center gap-2.5 text-[14px] text-chat-ink">
+            {/* Desktop only -- the mobile empty-state frame (Figma node
+                121:3667) has no suggestion chips below the composer. */}
+            <div className="hidden items-center gap-2.5 text-[14px] text-chat-ink sm:flex">
               <span>Start with</span>
               <div className="flex flex-wrap items-center justify-center gap-1">
                 {SUGGESTIONS.map((s) => (

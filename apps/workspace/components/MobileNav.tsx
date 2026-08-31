@@ -27,7 +27,7 @@ export default function MobileNav({
 
   return (
     <>
-      <div className="flex shrink-0 items-center justify-between bg-chat-warm px-[26px] py-4 sm:hidden">
+      <div className="flex shrink-0 items-center justify-between bg-page px-[26px] py-4 sm:hidden">
         <img src="/icons/logo-mark.svg" alt="Accurate" className="h-8 w-auto" />
         <button
           type="button"
