@@ -1,4 +1,4 @@
-"""Acc: a persistent named agent identity (Agent OS V0.4 slice)."""
+"""Ethical: a persistent named agent identity (Agent OS V0.4 slice)."""
 
 from __future__ import annotations
 
@@ -6,36 +6,36 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-AccStatus = Literal["active", "archived"]
+EthicalStatus = Literal["active", "archived"]
 WorkReuseLabel = Literal["reused", "partially_reused", "fresh"]
 
 
-class AccCreateRequest(BaseModel):
+class EthicalCreateRequest(BaseModel):
     name: str
     goal: str | None = None
     project_id: str
 
 
-class AccPatchRequest(BaseModel):
+class EthicalPatchRequest(BaseModel):
     name: str | None = None
     goal: str | None = None
 
 
-class AccResponse(BaseModel):
+class EthicalResponse(BaseModel):
     id: str
     name: str
     goal: str | None = None
-    status: AccStatus
+    status: EthicalStatus
     project_id: str
     project_name: str
     created_at: str
 
 
-class AccList(BaseModel):
-    accs: list[AccResponse]
+class EthicalList(BaseModel):
+    ethicals: list[EthicalResponse]
 
 
-class AccWorkItem(BaseModel):
+class EthicalWorkItem(BaseModel):
     job_id: str
     task_text: str
     status: str
@@ -47,5 +47,5 @@ class AccWorkItem(BaseModel):
     created_at: str
 
 
-class AccDetail(AccResponse):
-    work: list[AccWorkItem]
+class EthicalDetail(EthicalResponse):
+    work: list[EthicalWorkItem]

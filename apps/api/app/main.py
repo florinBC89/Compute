@@ -15,10 +15,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.db import dispose_engine
 from app.routes import (
-    accs,
     artifact_policies,
     computations,
     cross_model,
+    ethicals,
     jobs,
     me,
     metrics,
@@ -68,7 +68,7 @@ app.include_router(cross_model.router, prefix="/v1")
 app.include_router(me.router, prefix="/v1")
 app.include_router(jobs.router, prefix="/v1")
 app.include_router(workspace.router, prefix="/v1")
-app.include_router(accs.router, prefix="/v1")
+app.include_router(ethicals.router, prefix="/v1")
 
 
 @app.get("/health", tags=["ops"])

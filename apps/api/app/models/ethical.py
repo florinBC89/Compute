@@ -1,9 +1,9 @@
-"""Acc -- a persistent named agent identity (Agent OS V0.4 slice).
+"""Ethical -- a persistent named agent identity (Agent OS V0.4 slice).
 
-Deliberately thin: this is "give Acc a name and a face," not the full
+Deliberately thin: this is "give Ethical a name and a face," not the full
 Agent OS object model (spec §2-3) -- no Memory, no Skills/Tools, no
-Policies beyond what a Job already enforces. An Acc's "Work" is derived at
-read time from its Project's existing Jobs (app.services.accs), not stored
+Policies beyond what a Job already enforces. An Ethical's "Work" is derived at
+read time from its Project's existing Jobs (app.services.ethicals), not stored
 here.
 """
 
@@ -18,15 +18,15 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, created_at_column, uuid_fk, uuid_pk
 
 
-class Acc(Base):
-    __tablename__ = "accs"
+class Ethical(Base):
+    __tablename__ = "ethicals"
 
     id: Mapped[uuid.UUID] = uuid_pk()
     workspace_id: Mapped[uuid.UUID] = uuid_fk("workspaces.id")
-    #: Not unique -- a Project can hold multiple Accs (spec §14's "Marketing
-    #: Acc / Research Acc" under one Team Project). Work for now = that
-    #: Project's Jobs, shared across any Acc pointed at it, since Job has
-    #: no acc_id yet.
+    #: Not unique -- a Project can hold multiple Ethicals (spec §14's "Marketing
+    #: Ethical / Research Ethical" under one Team Project). Work for now = that
+    #: Project's Jobs, shared across any Ethical pointed at it, since Job has
+    #: no ethical_id yet.
     project_id: Mapped[uuid.UUID] = uuid_fk("projects.id")
     name: Mapped[str] = mapped_column(Text, nullable=False)
     goal: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -1,8 +1,8 @@
-"""Accs: persistent named agent identities (Agent OS V0.4 slice, "give Acc
+"""Ethicals: persistent named agent identities (Agent OS V0.4 slice, "give Ethical
 a name and a face").
 
 Own top-level module rather than folded into app.routes.workspace --
-Accs need a fuller create/list/get/patch surface, the same reason jobs
+Ethicals need a fuller create/list/get/patch surface, the same reason jobs
 has its own module instead of living in workspace.py.
 """
 
@@ -14,18 +14,18 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.models import Acc, Project
-from app.schemas.acc import (
-    AccCreateRequest,
-    AccDetail,
-    AccList,
-    AccPatchRequest,
-    AccResponse,
+from app.models import Ethical, Project
+from app.schemas.ethical import (
+    EthicalCreateRequest,
+    EthicalDetail,
+    EthicalList,
+    EthicalPatchRequest,
+    EthicalResponse,
 )
-from app.services.accs import acc_work_items, list_workspace_accs, to_acc_response
+from app.services.ethicals import ethical_work_items, list_workspace_ethicals, to_ethical_response
 from app.services.user_scope import CurrentUser, resolve_current_user
 
-router = APIRouter(prefix="/accs", tags=["accs"])
+router = APIRouter(prefix="/ethicals", tags=["ethicals"])
 
 
 async def _owned_project(
@@ -39,22 +39,22 @@ async def _owned_project(
     return project
 
 
-async def _owned_acc(
-    session: AsyncSession, acc_id: str, current_user: CurrentUser
-) -> Acc:
+async def _owned_ethical(
+    session: AsyncSession, ethical_id: str, current_user: CurrentUser
+) -> Ethical:
     try:
-        acc_uuid = uuid.UUID(acc_id)
+        ethical_uuid = uuid.UUID(ethical_id)
     except ValueError as exc:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="acc not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="ethical not found"
         ) from exc
 
-    acc = await session.get(Acc, acc_uuid)
-    if acc is None or acc.workspace_id != current_user.workspace_id:
+    ethical = await session.get(Ethical, ethical_uuid)
+    if ethical is None or ethical.workspace_id != current_user.workspace_id:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="acc not found"
+            status_code=status.HTTP_404_NOT_FOUND, detail="ethical not found"
         )
-    return acc
+    return ethical
 
 
 async def _project_name(session: AsyncSession, project_id: uuid.UUID) -> str:
@@ -62,12 +62,12 @@ async def _project_name(session: AsyncSession, project_id: uuid.UUID) -> str:
     return project.name if project is not None else ""
 
 
-@router.post("", response_model=AccResponse)
-async def create_acc(
-    body: AccCreateRequest,
+@router.post("", response_model=EthicalResponse)
+async def create_ethical(
+    body: EthicalCreateRequest,
     current_user: CurrentUser = Depends(resolve_current_user),
     session: AsyncSession = Depends(get_session),
-) -> AccResponse:
+) -> EthicalResponse:
     if not body.name.strip():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="name is required"
@@ -80,59 +80,59 @@ async def create_acc(
         ) from exc
     project = await _owned_project(session, project_uuid, current_user)
 
-    acc = Acc(
+    ethical = Ethical(
         id=uuid.uuid4(),
         workspace_id=current_user.workspace_id,
         project_id=project.id,
         name=body.name.strip(),
         goal=body.goal.strip() if body.goal else None,
     )
-    session.add(acc)
+    session.add(ethical)
     await session.flush()
-    return to_acc_response(acc, project.name)
+    return to_ethical_response(ethical, project.name)
 
 
-@router.get("", response_model=AccList)
-async def list_accs(
+@router.get("", response_model=EthicalList)
+async def list_ethicals(
     current_user: CurrentUser = Depends(resolve_current_user),
     session: AsyncSession = Depends(get_session),
-) -> AccList:
-    accs = await list_workspace_accs(session, current_user.workspace_id)
-    return AccList(
-        accs=[
-            to_acc_response(acc, await _project_name(session, acc.project_id))
-            for acc in accs
+) -> EthicalList:
+    ethicals = await list_workspace_ethicals(session, current_user.workspace_id)
+    return EthicalList(
+        ethicals=[
+            to_ethical_response(ethical, await _project_name(session, ethical.project_id))
+            for ethical in ethicals
         ]
     )
 
 
-@router.get("/{acc_id}", response_model=AccDetail)
-async def get_acc(
-    acc_id: str,
+@router.get("/{ethical_id}", response_model=EthicalDetail)
+async def get_ethical(
+    ethical_id: str,
     current_user: CurrentUser = Depends(resolve_current_user),
     session: AsyncSession = Depends(get_session),
-) -> AccDetail:
-    acc = await _owned_acc(session, acc_id, current_user)
-    project_name = await _project_name(session, acc.project_id)
-    work = await acc_work_items(session, acc.project_id)
-    return AccDetail(**to_acc_response(acc, project_name).model_dump(), work=work)
+) -> EthicalDetail:
+    ethical = await _owned_ethical(session, ethical_id, current_user)
+    project_name = await _project_name(session, ethical.project_id)
+    work = await ethical_work_items(session, ethical.project_id)
+    return EthicalDetail(**to_ethical_response(ethical, project_name).model_dump(), work=work)
 
 
-@router.patch("/{acc_id}", response_model=AccResponse)
-async def patch_acc(
-    acc_id: str,
-    body: AccPatchRequest,
+@router.patch("/{ethical_id}", response_model=EthicalResponse)
+async def patch_ethical(
+    ethical_id: str,
+    body: EthicalPatchRequest,
     current_user: CurrentUser = Depends(resolve_current_user),
     session: AsyncSession = Depends(get_session),
-) -> AccResponse:
-    acc = await _owned_acc(session, acc_id, current_user)
+) -> EthicalResponse:
+    ethical = await _owned_ethical(session, ethical_id, current_user)
     if body.name is not None:
         if not body.name.strip():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail="name is required"
             )
-        acc.name = body.name.strip()
+        ethical.name = body.name.strip()
     if body.goal is not None:
-        acc.goal = body.goal.strip() or None
+        ethical.goal = body.goal.strip() or None
     await session.flush()
-    return to_acc_response(acc, await _project_name(session, acc.project_id))
+    return to_ethical_response(ethical, await _project_name(session, ethical.project_id))

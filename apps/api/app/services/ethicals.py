@@ -1,6 +1,6 @@
-"""Acc response building + Work derivation (Agent OS V0.4 slice).
+"""Ethical response building + Work derivation (Agent OS V0.4 slice).
 
-An Acc's "Work" is not stored -- it's its Project's existing Jobs
+An Ethical's "Work" is not stored -- it's its Project's existing Jobs
 (app.services.jobs.list_project_jobs), each labeled reused/partially
 reused/fresh from the same run totals (app.services.runs.run_totals) the
 workspace result screen already computes. Reusing both rather than adding
@@ -15,31 +15,31 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Acc
-from app.schemas.acc import AccResponse, AccWorkItem, WorkReuseLabel
+from app.models import Ethical
+from app.schemas.ethical import EthicalResponse, EthicalWorkItem, WorkReuseLabel
 from app.services.jobs import list_project_jobs
 from app.services.runs import run_totals
 
-__all__ = ["to_acc_response", "list_workspace_accs", "acc_work_items"]
+__all__ = ["to_ethical_response", "list_workspace_ethicals", "ethical_work_items"]
 
 
-def to_acc_response(acc: Acc, project_name: str) -> AccResponse:
-    return AccResponse(
-        id=str(acc.id),
-        name=acc.name,
-        goal=acc.goal,
-        status=acc.status,
-        project_id=str(acc.project_id),
+def to_ethical_response(ethical: Ethical, project_name: str) -> EthicalResponse:
+    return EthicalResponse(
+        id=str(ethical.id),
+        name=ethical.name,
+        goal=ethical.goal,
+        status=ethical.status,
+        project_id=str(ethical.project_id),
         project_name=project_name,
-        created_at=acc.created_at.isoformat(),
+        created_at=ethical.created_at.isoformat(),
     )
 
 
-async def list_workspace_accs(session: AsyncSession, workspace_id: uuid.UUID) -> list[Acc]:
+async def list_workspace_ethicals(session: AsyncSession, workspace_id: uuid.UUID) -> list[Ethical]:
     statement = (
-        select(Acc)
-        .where(Acc.workspace_id == workspace_id)
-        .order_by(Acc.created_at.desc())
+        select(Ethical)
+        .where(Ethical.workspace_id == workspace_id)
+        .order_by(Ethical.created_at.desc())
     )
     return list((await session.execute(statement)).scalars().all())
 
@@ -52,9 +52,9 @@ def _reuse_label(totals: dict) -> WorkReuseLabel:
     return "fresh"
 
 
-async def acc_work_items(session: AsyncSession, project_id: uuid.UUID) -> list[AccWorkItem]:
+async def ethical_work_items(session: AsyncSession, project_id: uuid.UUID) -> list[EthicalWorkItem]:
     jobs = await list_project_jobs(session, project_id)
-    items: list[AccWorkItem] = []
+    items: list[EthicalWorkItem] = []
     for job in jobs:
         cost_usd = 0.0
         saved_usd = 0.0
@@ -65,7 +65,7 @@ async def acc_work_items(session: AsyncSession, project_id: uuid.UUID) -> list[A
             saved_usd = totals["saved_usd"]
             reuse_label = _reuse_label(totals)
         items.append(
-            AccWorkItem(
+            EthicalWorkItem(
                 job_id=str(job.id),
                 task_text=job.task_text,
                 status=job.status,
