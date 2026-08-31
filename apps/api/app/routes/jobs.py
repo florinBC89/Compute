@@ -162,6 +162,50 @@ async def cancel_job(
     return to_job_response(job, await _project_name(session, job.project_id))
 
 
+@router.post("/{job_id}/regenerate", response_model=JobResponse)
+async def regenerate_job(
+    job_id: str,
+    current_user: CurrentUser = Depends(resolve_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> JobResponse:
+    """Reset a finished job back to QUEUED and re-run it in place, rather
+    than creating a brand-new Job with the same task_text (which is what
+    the client used to do for "Regenerate").
+
+    That mattered because of how `app.services.jobs.build_chat_history`
+    fingerprints a chat turn's `cl.compute.run()` inputs: it walks the
+    project's Jobs and stops at `before_job_id`, excluding that job from
+    its own history. A brand-new job's `before_job_id` is the new job's
+    own id, so the *original* (now-SUCCEEDED) job is ahead of it in the
+    walk and lands in the new job's history -- a turn that wasn't present
+    in the original job's own history when *it* ran. Different history ->
+    different inputs -> different fingerprint -> guaranteed cache MISS,
+    which is exactly the "Regenerate always re-spends on the LLM" bug this
+    route fixes.
+
+    Resetting and re-running the SAME job id instead means
+    `build_chat_history(..., before_job_id=job.id)` excludes this exact
+    job again, the same way it did on the first run -- the history walked
+    is byte-identical, so the fingerprint is byte-identical, so this is a
+    genuine `cl.compute.run()` cache hit instead of a fresh provider call.
+    """
+    job = await _get_owned_job(session, job_id, current_user)
+    if job.status not in ("SUCCEEDED", "FAILED", "CANCELLED"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="job is not finished yet"
+        )
+    job.status = "QUEUED"
+    job.answer_text = None
+    job.error_message = None
+    job.current_step = None
+    job.run_id = None
+    job.spent_usd = 0
+    job.started_at = None
+    job.finished_at = None
+    await session.commit()
+    return to_job_response(job, await _project_name(session, job.project_id))
+
+
 @router.get("/{job_id}/events")
 async def stream_job_events(
     job_id: str,
