@@ -366,6 +366,7 @@ export default function ChatThread({
           className="relative mx-auto flex w-full max-w-[900px] flex-1 flex-col px-4 pb-0 pt-6 sm:px-0 sm:pb-10"
         >
         {showEmpty ? (
+          <>
           <div
             className={`flex flex-1 -translate-y-[100px] flex-col items-center justify-center gap-6 text-center transition-opacity duration-300 ${
               fadingOut ? "opacity-0" : "opacity-100"
@@ -430,7 +431,17 @@ export default function ChatThread({
               <span className="text-chat-accent-strong">less tokens</span>
             </h1>
 
-            <div className="-mt-[10px] w-full max-w-[676px]">
+            {/* Desktop only now -- see the mobile-specific instance
+                rendered as a sibling below, OUTSIDE this div. Putting a
+                `fixed` composer here (as tried first) computed bottom:10px
+                against THIS div's own box, not the actual screen: a CSS
+                `transform` (the -translate-y-[100px] above) makes its
+                element the containing block for any `position: fixed`
+                descendant, per spec -- confirmed empirically against a
+                real Android device (10px from a vertically-centered box's
+                edge, nowhere near the bottom of the screen). Same failure
+                mode already documented below for `sticky` (line ~505). */}
+            <div className="hidden -mt-[10px] w-full max-w-[676px] sm:block">
               <Composer
                 value={taskText}
                 onChange={setTaskText}
@@ -478,6 +489,31 @@ export default function ChatThread({
               </div>
             </div>
           </div>
+          {/* Mobile: the composer pinned to the bottom of the screen at a
+              fixed 10px -- a sibling of the transformed div above (not a
+              descendant of it), so `position: fixed` actually anchors to
+              the real viewport instead of that div's own box (see the
+              comment on the desktop instance above for why). Hidden while
+              fadingOut alongside it so it doesn't linger after the
+              populated thread view has taken over. */}
+          <div
+            className={`fixed inset-x-0 bottom-[10px] z-20 px-4 transition-opacity duration-300 sm:hidden ${
+              fadingOut ? "opacity-0" : "opacity-100"
+            }`}
+          >
+            <Composer
+              value={taskText}
+              onChange={setTaskText}
+              onSubmit={() => submit(taskText, modelPreference)}
+              onCancel={cancelActive}
+              running={running}
+              cancelling={cancelling}
+              placeholder="Ask me anything you want to do today!"
+              modelPreference={modelPreference}
+              onModelChange={setModelPreference}
+            />
+          </div>
+          </>
         ) : (
           <>
             {/* chat-thread-in animates opacity+translateY on mount (see
