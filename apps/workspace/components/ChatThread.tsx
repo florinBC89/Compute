@@ -268,6 +268,27 @@ export default function ChatThread({
         </div>
       ) : null}
       <div className="relative flex flex-1 flex-col overflow-y-auto overscroll-y-contain">
+        {/* Mobile only (Figma node 121:3667's populated-scroll frames,
+            "Rectangle 427321515"): MobileNav's logo+hamburger header sits
+            outside this scrolling region entirely (a shrink-0 flex
+            sibling, never inside the scroll container), so it's already
+            effectively "sticky" by construction -- this is the fade Figma
+            adds right below it, a blurred white gradient that stays
+            pinned to the top of the scroll viewport (sticky, not fixed,
+            so it only appears once there's actually something to scroll
+            under it) and fades scrolled-past content out before it
+            reaches the header, instead of the header hard-clipping it.
+            The negative bottom margin matches its own height so it
+            doesn't reserve scroll space -- it overlays the content
+            that's already there rather than pushing it down. */}
+        <div
+          aria-hidden
+          className="pointer-events-none sticky top-0 z-10 -mb-[101px] h-[101px] shrink-0 backdrop-blur-[2px] sm:hidden"
+          style={{
+            backgroundImage:
+              "linear-gradient(180deg, rgba(255,255,255,0) 9%, rgba(255,255,255,1) 50%)",
+          }}
+        />
         {showEmpty ? (
           // "Full bleed" per the Figma reference: fixed to the viewport
           // (not the scrolling content column) and behind everything, so

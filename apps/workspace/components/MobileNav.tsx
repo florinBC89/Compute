@@ -53,13 +53,13 @@ export default function MobileNav({
             </button>
           </div>
 
-          <nav className="flex flex-col gap-0.5 px-[22px]">
+          <nav className="flex flex-col gap-2.5 px-[42px]">
             {NAV_ITEMS.map((item) =>
               item.href ? (
                 <a
                   key={item.label}
                   href={item.href}
-                  className="flex items-center gap-2 rounded-[6px] px-3 py-2 text-[16px] text-chat-ink hover:bg-white/50"
+                  className="flex items-center gap-2 rounded-[6px] px-3 py-2 text-[22px] text-chat-ink hover:bg-white/50"
                 >
                   <img src={item.icon} alt="" className="h-5 w-5" />
                   {item.label}
@@ -67,7 +67,7 @@ export default function MobileNav({
               ) : (
                 <span
                   key={item.label}
-                  className="flex items-center gap-2 rounded-[6px] px-3 py-2 text-[16px] text-chat-ink opacity-60"
+                  className="flex items-center gap-2 rounded-[6px] px-3 py-2 text-[22px] text-chat-ink opacity-60"
                 >
                   <img src={item.icon} alt="" className="h-5 w-5" />
                   {item.label}
