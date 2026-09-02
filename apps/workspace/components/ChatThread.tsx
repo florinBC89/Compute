@@ -311,8 +311,17 @@ export default function ChatThread({
               threadScrolled ? "opacity-100" : "opacity-0"
             }`}
             style={{
+              // Ramps across the FULL 101px, not just the first ~45% of
+              // it -- stopping short left a flat, fully-opaque white block
+              // for the remainder of the zone, which then cut hard into
+              // fully-visible content right at the zone's bottom edge
+              // (the exact "solid shape... cutting off text" the real
+              // device screenshot showed). Reaching 100% only at the very
+              // last pixel means there's no flat plateau and no seam --
+              // it's continuously fading right up to where real content
+              // resumes.
               backgroundImage:
-                "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 45%)",
+                "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
             }}
           />
         ) : null}
