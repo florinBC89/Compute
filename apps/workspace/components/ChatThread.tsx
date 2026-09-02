@@ -268,27 +268,34 @@ export default function ChatThread({
         </div>
       ) : null}
       <div className="relative flex flex-1 flex-col overflow-y-auto overscroll-y-contain">
-        {/* Mobile only (Figma node 121:3667's populated-scroll frames,
-            "Rectangle 427321515"): MobileNav's logo+hamburger header sits
-            outside this scrolling region entirely (a shrink-0 flex
-            sibling, never inside the scroll container), so it's already
-            effectively "sticky" by construction -- this is the fade Figma
-            adds right below it, a blurred white gradient that stays
-            pinned to the top of the scroll viewport (sticky, not fixed,
-            so it only appears once there's actually something to scroll
-            under it) and fades scrolled-past content out before it
-            reaches the header, instead of the header hard-clipping it.
-            The negative bottom margin matches its own height so it
-            doesn't reserve scroll space -- it overlays the content
-            that's already there rather than pushing it down. */}
-        <div
-          aria-hidden
-          className="pointer-events-none sticky top-0 z-10 -mb-[101px] h-[101px] shrink-0 backdrop-blur-[2px] sm:hidden"
-          style={{
-            backgroundImage:
-              "linear-gradient(180deg, rgba(255,255,255,0) 9%, rgba(255,255,255,1) 50%)",
-          }}
-        />
+        {/* Mobile only, and only once there's an actual populated thread to
+            scroll (Figma node 121:3667's populated-scroll frames,
+            "Rectangle 427321515" -- the empty-hero frames have no such
+            overlay, and rendering it unconditionally clipped/obscured the
+            empty state's own vertically-centered orb and heading, which
+            sit exactly where this would otherwise paint). MobileNav's
+            logo+hamburger header sits outside this scrolling region
+            entirely (a shrink-0 flex sibling, never inside the scroll
+            container), so it's already effectively "sticky" by
+            construction -- this is the fade Figma adds right below it, a
+            blurred white gradient that stays pinned to the top of the
+            scroll viewport (sticky, not fixed, so it only appears once
+            there's actually something to scroll under it) and fades
+            scrolled-past content out before it reaches the header,
+            instead of the header hard-clipping it. The negative bottom
+            margin matches its own height so it doesn't reserve scroll
+            space -- it overlays the content that's already there rather
+            than pushing it down. */}
+        {!showEmpty ? (
+          <div
+            aria-hidden
+            className="pointer-events-none sticky top-0 z-10 -mb-[101px] h-[101px] shrink-0 backdrop-blur-[2px] sm:hidden"
+            style={{
+              backgroundImage:
+                "linear-gradient(180deg, rgba(255,255,255,0) 9%, rgba(255,255,255,1) 50%)",
+            }}
+          />
+        ) : null}
         {showEmpty ? (
           // "Full bleed" per the Figma reference: fixed to the viewport
           // (not the scrolling content column) and behind everything, so
@@ -459,7 +466,7 @@ export default function ChatThread({
               <div ref={bottomRef} />
             </div>
 
-            <div className="sticky bottom-0 bg-page pb-[30px]">
+            <div className="sticky bottom-0 mt-auto bg-page pb-[30px]">
               {/* Fades scrolled-past turn text into the page background
                   before it reaches the composer, instead of the text
                   being hard-clipped behind it -- sits inside the sticky
@@ -467,7 +474,12 @@ export default function ChatThread({
                   wrapper itself carries a solid page-color pb-[30px]
                   (instead of just offsetting the composer by 30px) so
                   there's no gap below the composer where unfaded turn
-                  text could still peek through. */}
+                  text could still peek through. mt-auto pins it to the
+                  bottom of the flex column for a short thread (otherwise
+                  it just sits in normal flow right after the last turn,
+                  leaving a dead gap below it down to the viewport edge)
+                  -- once the thread grows tall enough to scroll, the
+                  sticky positioning takes back over exactly as before. */}
               <div className="pointer-events-none absolute inset-x-0 -top-16 h-16 bg-gradient-to-b from-transparent to-page" />
               <Composer
                 value={taskText}
