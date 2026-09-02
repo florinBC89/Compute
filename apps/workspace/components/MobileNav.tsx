@@ -27,7 +27,19 @@ export default function MobileNav({
 
   return (
     <>
-      <div className="flex shrink-0 items-center justify-between bg-page px-[26px] py-4 sm:hidden">
+      {/* `fixed`, not a normal-flow shrink-0 bar: it needs to sit ON TOP
+          of ChatThread's scrolling content (a separate sibling component,
+          not nested under this one) so scrolled text is actually visible
+          -- fading -- underneath it, rather than the header being a flat
+          opaque block with a separately-starting fade zone below it. The
+          background itself carries that fade: solid where the logo/
+          hamburger need to stay legible, fading to fully transparent by
+          its own bottom edge, plus a blur so text isn't just dimmed but
+          genuinely soft-focused as it passes under. The spacer right
+          after it reserves the same height in normal flow so page
+          content still starts below the header on first paint, instead
+          of loading hidden underneath it. */}
+      <div className="fixed inset-x-0 top-0 z-30 flex items-center justify-between bg-gradient-to-b from-page from-55% to-page/0 px-[26px] pb-6 pt-4 backdrop-blur-[6px] sm:hidden">
         <img src="/icons/logo-mark.svg" alt="Accurate" className="h-8 w-auto" />
         <button
           type="button"
@@ -38,6 +50,7 @@ export default function MobileNav({
           <img src="/icons/nav-menu.svg" alt="" className="h-[17px] w-[21px]" />
         </button>
       </div>
+      <div className="h-[64px] shrink-0 sm:hidden" aria-hidden />
 
       {open ? (
         <div className="fixed inset-0 z-50 flex flex-col bg-chat-warm sm:hidden">
