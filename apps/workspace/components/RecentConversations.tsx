@@ -17,8 +17,18 @@ export default function RecentConversations({
   currentProjectId: string | null;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const visible = expanded ? projects : projects.slice(0, VISIBLE_COUNT);
-  const hasMore = projects.length > VISIBLE_COUNT;
+  // Pins the active conversation to the top of the list instead of leaving
+  // it wherever it falls chronologically -- otherwise it could sit past
+  // VISIBLE_COUNT (hidden behind "More") or require scrolling to spot,
+  // even though it's the one conversation you already know you're in.
+  const ordered = currentProjectId
+    ? [
+        ...projects.filter((p) => p.id === currentProjectId),
+        ...projects.filter((p) => p.id !== currentProjectId),
+      ]
+    : projects;
+  const visible = expanded ? ordered : ordered.slice(0, VISIBLE_COUNT);
+  const hasMore = ordered.length > VISIBLE_COUNT;
 
   return (
     <div className="flex flex-col gap-0.5 overflow-y-auto">
