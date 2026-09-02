@@ -312,7 +312,7 @@ export default function ChatThread({
             }`}
             style={{
               backgroundImage:
-                "linear-gradient(180deg, rgba(255,255,255,0) 9%, rgba(255,255,255,1) 50%)",
+                "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 45%)",
             }}
           />
         ) : null}
@@ -349,7 +349,7 @@ export default function ChatThread({
         ) : null}
         <div
           ref={contentColumnRef}
-          className="relative mx-auto flex w-full max-w-[900px] flex-1 flex-col px-4 pb-10 pt-6 sm:px-0"
+          className="relative mx-auto flex w-full max-w-[900px] flex-1 flex-col px-4 pb-0 pt-6 sm:px-0 sm:pb-10"
         >
         {showEmpty ? (
           <div
@@ -486,15 +486,19 @@ export default function ChatThread({
               <div ref={bottomRef} />
             </div>
 
-            <div className="sticky bottom-0 mt-auto bg-page pb-[30px]">
+            <div className="sticky bottom-0 mt-auto bg-page pb-[20px] sm:pb-[30px]">
               {/* Fades scrolled-past turn text into the page background
                   before it reaches the composer, instead of the text
                   being hard-clipped behind it -- sits inside the sticky
                   wrapper so it stays pinned with the composer. The
-                  wrapper itself carries a solid page-color pb-[30px]
-                  (instead of just offsetting the composer by 30px) so
-                  there's no gap below the composer where unfaded turn
-                  text could still peek through. mt-auto pins it to the
+                  wrapper itself carries a solid page-color bottom padding
+                  (instead of just offsetting the composer by that amount)
+                  so there's no gap below the composer where unfaded turn
+                  text could still peek through -- 20px on mobile (the
+                  content column's own pb-10 is zeroed out there, see
+                  above, so this is the ONLY source of that gap and
+                  directly matches the spec), 30px on desktop, unchanged.
+                  mt-auto pins it to the
                   bottom of the flex column for a short thread (otherwise
                   it just sits in normal flow right after the last turn,
                   leaving a dead gap below it down to the viewport edge)
