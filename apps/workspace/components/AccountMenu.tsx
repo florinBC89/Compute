@@ -15,7 +15,18 @@ const MARKETING_URL = process.env.NEXT_PUBLIC_MARKETING_URL ?? "http://localhost
 // instead (see the responsive classes below). Sign out is the only entry
 // for now; Sidebar.tsx's own comment already notes there's no other
 // account control in the design yet.
-export default function AccountMenu({ name }: { name: string }) {
+export default function AccountMenu({
+  name,
+  compact = false,
+}: {
+  name: string;
+  //: The mobile nav's later Figma update (MobileNav.tsx) pins this as a
+  //: bare avatar floating at the overlay's bottom-right corner, with no
+  //: name label next to it -- the dropdown opens upward-left (toward
+  //: `right-0`) to stay on screen from that corner, instead of the
+  //: upward-right/sideways anchors the full-width row uses below.
+  compact?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -51,12 +62,16 @@ export default function AccountMenu({ name }: { name: string }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         title="Account"
-        className="flex items-center gap-2 pl-2 pr-8 pt-6 text-[14px] font-medium text-chat-ink"
+        className={
+          compact
+            ? "flex items-center"
+            : "flex items-center gap-2 pl-2 pr-8 pt-6 text-[14px] font-medium text-chat-ink"
+        }
       >
         <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-full bg-accent text-[13px] font-semibold text-white">
           {name.charAt(0)}
         </span>
-        {name}
+        {compact ? null : name}
       </button>
 
       {open ? (
@@ -71,7 +86,13 @@ export default function AccountMenu({ name }: { name: string }) {
         // (confirmed live via elementFromPoint: it returned ChatThread's
         // div, not this menu's own button, at the exact same screen point
         // the button visually occupied).
-        <div className="absolute bottom-full left-0 z-20 mb-2 w-[160px] rounded-[15px] border border-chat-border-warm bg-chat-warm p-[5px] shadow-[0_8px_24px_rgba(0,0,0,0.08)] sm:bottom-0 sm:left-full sm:mb-0 sm:ml-2">
+        <div
+          className={
+            compact
+              ? "absolute bottom-full right-0 z-20 mb-2 w-[160px] rounded-[15px] border border-chat-border-warm bg-chat-warm p-[5px] shadow-[0_8px_24px_rgba(0,0,0,0.08)]"
+              : "absolute bottom-full left-0 z-20 mb-2 w-[160px] rounded-[15px] border border-chat-border-warm bg-chat-warm p-[5px] shadow-[0_8px_24px_rgba(0,0,0,0.08)] sm:bottom-0 sm:left-full sm:mb-0 sm:ml-2"
+          }
+        >
           <ul>
             <li>
               <button

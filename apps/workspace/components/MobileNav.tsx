@@ -53,52 +53,60 @@ export default function MobileNav({
             </button>
           </div>
 
-          <nav className="flex flex-col gap-2.5 px-[42px]">
-            {NAV_ITEMS.map((item) =>
-              item.href ? (
-                <a
-                  key={item.label}
-                  href={item.href}
-                  className="flex items-center gap-2 rounded-[6px] px-3 py-2 text-[22px] text-chat-ink hover:bg-white/50"
-                >
-                  <img src={item.icon} alt="" className="h-5 w-5" />
-                  {item.label}
-                </a>
-              ) : (
-                <span
-                  key={item.label}
-                  className="flex items-center gap-2 rounded-[6px] px-3 py-2 text-[22px] text-chat-ink opacity-60"
-                >
-                  <img src={item.icon} alt="" className="h-5 w-5" />
-                  {item.label}
-                </span>
-              )
-            )}
-          </nav>
+          {/* Nav items + Recent now scroll together as one panel (Figma's
+              later mobile update) instead of Recent being a separate
+              fixed-height, internally-capped section -- pb-24 leaves
+              clearance so the last few scrolled items don't end up
+              permanently hidden behind the floating avatar below. */}
+          <div className="flex-1 overflow-y-auto pb-24">
+            <nav className="flex flex-col gap-2.5 px-[42px]">
+              {NAV_ITEMS.map((item) =>
+                item.href ? (
+                  <a
+                    key={item.label}
+                    href={item.href}
+                    className="flex items-center gap-2 rounded-[6px] px-3 py-2 text-[22px] text-chat-ink hover:bg-white/50"
+                  >
+                    <img src={item.icon} alt="" className="h-5 w-5" />
+                    {item.label}
+                  </a>
+                ) : (
+                  <span
+                    key={item.label}
+                    className="flex items-center gap-2 rounded-[6px] px-3 py-2 text-[22px] text-chat-ink opacity-60"
+                  >
+                    <img src={item.icon} alt="" className="h-5 w-5" />
+                    {item.label}
+                  </span>
+                )
+              )}
+            </nav>
 
-          {projects.length > 0 ? (
-            <div className="mt-6 flex min-h-0 flex-1 flex-col px-[22px]">
-              <span className="px-3 pb-1.5 text-[12px] font-semibold uppercase tracking-wide text-chat-label">
-                Recent
-              </span>
-              <RecentConversations projects={projects} currentProjectId={currentProjectId} />
-            </div>
-          ) : (
-            <div className="flex-1" />
-          )}
+            {projects.length > 0 ? (
+              <div className="mt-6 flex flex-col px-[22px]">
+                <span className="px-3 pb-1.5 text-[16px] text-chat-label">Recent</span>
+                {/* capped=false: no VISIBLE_COUNT/More cutoff here -- a
+                    long history just runs on below the fold as part of
+                    this same scroll, per the later Figma update. */}
+                <RecentConversations
+                  projects={projects}
+                  currentProjectId={currentProjectId}
+                  capped={false}
+                />
+              </div>
+            ) : null}
+          </div>
 
-          <div className="flex flex-col gap-6 px-[22px] pb-[26px]">
-            <div className="flex flex-col gap-1">
-              <span className="flex items-center gap-2 px-3 py-2 text-[16px] text-chat-ink opacity-60">
-                <img src="/icons/nav-support.svg" alt="" className="h-5 w-5" />
-                Support
-              </span>
-              <span className="flex items-center gap-2 px-3 py-2 text-[16px] text-chat-ink opacity-60">
-                <img src="/icons/nav-settings.svg" alt="" className="h-5 w-5" />
-                Settings
-              </span>
+          {/* Bare avatar (no name, no Support/Settings rows -- dropped
+              from this later Figma update), pinned to the overlay's
+              bottom-right corner regardless of how far the panel above
+              scrolls. absolute + the overlay's own `fixed inset-0`
+              ancestor, rather than CSS `sticky`, since it needs to float
+              OVER the scrolling list, not push/reserve space within it. */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-end p-[22px]">
+            <div className="pointer-events-auto">
+              <AccountMenu name={name} compact />
             </div>
-            <AccountMenu name={name} />
           </div>
         </div>
       ) : null}

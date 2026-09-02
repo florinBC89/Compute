@@ -265,8 +265,13 @@ export default function ChatThread({
         // overscroll the way a sticky one did. Sits flush against the
         // sidebar (top left, nearby the side navigation, per the
         // original spec) rather than drifting to wherever the centered
-        // 900px column lands on a wide viewport.
-        <div className="relative z-10 flex shrink-0 items-center gap-1.5 bg-page px-6 pb-3 pt-3">
+        // 900px column lands on a wide viewport. Mobile-hidden: the
+        // conversation name now shows prominently in the nav's Recent
+        // list (MobileNav.tsx, pinned to the top, bigger text), so
+        // repeating it here on a small screen is pure redundancy --
+        // desktop keeps it, since the sidebar there sits narrower and
+        // further from the page's own content.
+        <div className="relative z-10 hidden shrink-0 items-center gap-1.5 bg-page px-6 pb-3 pt-3 sm:flex">
           <span className="text-[15px] font-medium text-chat-ink">{title}</span>
           <img src="/icons/chevron-down.svg" alt="" className="h-[5.5px] w-[9.5px]" />
           {/* Overlays the top of the scrollable region right below it,
