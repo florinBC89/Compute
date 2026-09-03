@@ -76,15 +76,6 @@ export default function ChatThread({
   //: completely inert and invited a second (or third) click.
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  //: Gates the mobile scroll-fade below (Figma node 121:3667) so it's only
-  //: visible once there's actually scrolled-past content for it to fade --
-  //: `sticky` alone can't express that, since a sticky element renders
-  //: identically whether it's pinned after real scrolling or just sitting
-  //: at its own flow position at scrollTop 0 (which happens to be the very
-  //: top of the thread too). Without this, the blur+gradient permanently
-  //: painted over the first ~101px of the very first reply, looking like a
-  //: rendering bug instead of a scroll effect.
-  const [threadScrolled, setThreadScrolled] = useState(false);
   const eventSourceRef = useRef<EventSource | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const contentColumnRef = useRef<HTMLDivElement | null>(null);
@@ -281,55 +272,7 @@ export default function ChatThread({
           <div className="pointer-events-none absolute inset-x-0 top-full h-20 bg-gradient-to-b from-page to-transparent" />
         </div>
       ) : null}
-      <div
-        className="relative flex flex-1 flex-col overflow-y-auto overscroll-y-contain"
-        onScroll={(e) => setThreadScrolled(e.currentTarget.scrollTop > 16)}
-      >
-        {/* Mobile only, and only once there's an actual populated thread to
-            scroll (Figma node 121:3667's populated-scroll frames,
-            "Rectangle 427321515" -- the empty-hero frames have no such
-            overlay, and rendering it unconditionally clipped/obscured the
-            empty state's own vertically-centered orb and heading, which
-            sit exactly where this would otherwise paint). MobileNav's
-            logo+hamburger header sits outside this scrolling region
-            entirely (a shrink-0 flex sibling, never inside the scroll
-            container), so it's already effectively "sticky" by
-            construction -- this is the fade Figma adds right below it, a
-            blurred white gradient that stays pinned to the top of the
-            scroll viewport (sticky, not fixed, so it only appears once
-            there's actually something to scroll under it) and fades
-            scrolled-past content out before it reaches the header,
-            instead of the header hard-clipping it. The negative bottom
-            margin matches its own height so it doesn't reserve scroll
-            space -- it overlays the content that's already there rather
-            than pushing it down. Its opacity is further gated on
-            threadScrolled (above): "sticky" alone renders the same blur
-            whether or not you've actually scrolled, and at scrollTop 0 its
-            flow position happens to sit right over the thread's own first
-            reply -- fading real, never-scrolled content the moment it
-            loads looked like a broken overlay rather than a scroll
-            effect. */}
-        {!showEmpty ? (
-          <div
-            aria-hidden
-            className={`pointer-events-none sticky top-0 z-10 -mb-[101px] h-[101px] shrink-0 backdrop-blur-[2px] transition-opacity duration-200 sm:hidden ${
-              threadScrolled ? "opacity-100" : "opacity-0"
-            }`}
-            style={{
-              // Ramps across the FULL 101px, not just the first ~45% of
-              // it -- stopping short left a flat, fully-opaque white block
-              // for the remainder of the zone, which then cut hard into
-              // fully-visible content right at the zone's bottom edge
-              // (the exact "solid shape... cutting off text" the real
-              // device screenshot showed). Reaching 100% only at the very
-              // last pixel means there's no flat plateau and no seam --
-              // it's continuously fading right up to where real content
-              // resumes.
-              backgroundImage:
-                "linear-gradient(180deg, rgba(255,255,255,0) 0%, rgba(255,255,255,1) 100%)",
-            }}
-          />
-        ) : null}
+      <div className="relative flex flex-1 flex-col overflow-y-auto overscroll-y-contain">
         {showEmpty ? (
           // "Full bleed" per the Figma reference: fixed to the viewport
           // (not the scrolling content column) and behind everything, so
