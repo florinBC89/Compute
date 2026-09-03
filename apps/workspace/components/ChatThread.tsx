@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ChatStreamEnvelope, JobDetail, JobEvent } from "@/lib/api";
+import { useKeyboardCoverage } from "@/lib/useKeyboardCoverage";
 import Composer, { MODEL_OPTIONS } from "./Composer";
 import GradientBackground from "./GradientBackground";
 import TurnBubble from "./TurnBubble";
@@ -247,6 +248,10 @@ export default function ChatThread({
   }
 
   const running = activeJobId !== null;
+  //: 0 whenever the keyboard's closed (or on desktop, which has none) --
+  //: see the composer wrapper below for why this only ever nudges it,
+  //: never changes its actual position/layout mode.
+  const keyboardCoverage = useKeyboardCoverage();
 
   return (
     <div className="relative flex h-full flex-1 flex-col overflow-hidden">
@@ -479,7 +484,12 @@ export default function ChatThread({
               <div ref={bottomRef} />
             </div>
 
-            <div className="sticky bottom-0 mt-auto bg-page pb-[20px] sm:pb-[30px]">
+            <div
+              className="sticky bottom-0 mt-auto bg-page pb-[20px] sm:pb-[30px]"
+              style={
+                keyboardCoverage > 0 ? { transform: `translateY(-${keyboardCoverage}px)` } : undefined
+              }
+            >
               {/* Fades scrolled-past turn text into the page background
                   before it reaches the composer, instead of the text
                   being hard-clipped behind it -- sits inside the sticky
@@ -491,7 +501,17 @@ export default function ChatThread({
                   content column's own pb-10 is zeroed out there, see
                   above, so this is the ONLY source of that gap and
                   directly matches the spec), 30px on desktop, unchanged.
-                  mt-auto pins it to the
+                  The translateY above is a separate fix for a different
+                  problem: iOS Safari doesn't shrink the LAYOUT viewport
+                  when the on-screen keyboard opens, only the VISUAL one --
+                  so this element is still genuinely `sticky`-positioned
+                  correctly, just stuck to the bottom of a viewport that's
+                  now partly covered by the keyboard. Nudging it up by
+                  exactly how much is covered (tracked via
+                  useKeyboardCoverage) puts it back at the bottom of what's
+                  actually visible, without touching position/layout mode
+                  at all -- a no-op (no inline style) whenever the
+                  keyboard's closed. mt-auto pins it to the
                   bottom of the flex column for a short thread (otherwise
                   it just sits in normal flow right after the last turn,
                   leaving a dead gap below it down to the viewport edge)
