@@ -11,9 +11,33 @@ const kalnia = Kalnia({
   variable: "--font-display",
 });
 
+const TITLE = "Accurate";
+const DESCRIPTION = "Use the best AI for every part of your work — without starting over.";
+const SITE_URL = "https://app.accurate-ai.app";
+
+// Without an explicit openGraph/twitter block, a shared link showed a
+// title and description but no preview thumbnail (confirmed live -- a
+// WhatsApp share of this URL rendered as a bare text card). Reuses
+// apps/website's own og-image.png -- same brand system, already a real,
+// committed asset -- rather than a second near-duplicate image.
 export const metadata: Metadata = {
-  title: "Accurate",
-  description: "Use the best AI for every part of your work — without starting over.",
+  metadataBase: new URL(SITE_URL),
+  title: TITLE,
+  description: DESCRIPTION,
+  openGraph: {
+    title: TITLE,
+    description: DESCRIPTION,
+    url: SITE_URL,
+    siteName: "Accurate",
+    type: "website",
+    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "Accurate" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: TITLE,
+    description: DESCRIPTION,
+    images: ["/og-image.png"],
+  },
 };
 
 // No shared max-width/padding wrapper here (V0.3): the chat page owns a
