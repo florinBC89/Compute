@@ -443,11 +443,18 @@ export default function ChatThread({
               the real viewport instead of that div's own box (see the
               comment on the desktop instance above for why). Hidden while
               fadingOut alongside it so it doesn't linger after the
-              populated thread view has taken over. */}
+              populated thread view has taken over. `fixed` anchors to the
+              layout viewport same as the populated thread's `sticky`
+              wrapper, so it's covered by the keyboard the same way -- see
+              useKeyboardCoverage for why the translateY nudge below fixes
+              it without changing how this is positioned. */}
           <div
             className={`fixed inset-x-0 bottom-[10px] z-20 px-4 transition-opacity duration-300 sm:hidden ${
               fadingOut ? "opacity-0" : "opacity-100"
             }`}
+            style={
+              keyboardCoverage > 0 ? { transform: `translateY(-${keyboardCoverage}px)` } : undefined
+            }
           >
             <Composer
               value={taskText}
