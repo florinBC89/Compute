@@ -314,7 +314,6 @@ export default function ChatThread({
           className="relative mx-auto flex w-full max-w-[900px] flex-1 flex-col px-4 pb-0 pt-6 sm:px-0 sm:pb-10"
         >
         {showEmpty ? (
-          <>
           <div
             className={`flex flex-1 -translate-y-[100px] flex-col items-center justify-center gap-6 text-center transition-opacity duration-300 ${
               fadingOut ? "opacity-0" : "opacity-100"
@@ -437,38 +436,6 @@ export default function ChatThread({
               </div>
             </div>
           </div>
-          {/* Mobile: the composer pinned to the bottom of the screen at a
-              fixed 10px -- a sibling of the transformed div above (not a
-              descendant of it), so `position: fixed` actually anchors to
-              the real viewport instead of that div's own box (see the
-              comment on the desktop instance above for why). Hidden while
-              fadingOut alongside it so it doesn't linger after the
-              populated thread view has taken over. `fixed` anchors to the
-              layout viewport same as the populated thread's `sticky`
-              wrapper, so it's covered by the keyboard the same way -- see
-              useKeyboardCoverage for why the translateY nudge below fixes
-              it without changing how this is positioned. */}
-          <div
-            className={`fixed inset-x-0 bottom-[10px] z-20 px-4 transition-opacity duration-300 sm:hidden ${
-              fadingOut ? "opacity-0" : "opacity-100"
-            }`}
-            style={
-              keyboardCoverage > 0 ? { transform: `translateY(-${keyboardCoverage}px)` } : undefined
-            }
-          >
-            <Composer
-              value={taskText}
-              onChange={setTaskText}
-              onSubmit={() => submit(taskText, modelPreference)}
-              onCancel={cancelActive}
-              running={running}
-              cancelling={cancelling}
-              placeholder="Ask me anything you want to do today!"
-              modelPreference={modelPreference}
-              onModelChange={setModelPreference}
-            />
-          </div>
-          </>
         ) : (
           <>
             {/* chat-thread-in animates opacity+translateY on mount (see
@@ -544,6 +511,48 @@ export default function ChatThread({
         {error ? <p className="mt-3 text-[13.5px] text-critical">{error}</p> : null}
         </div>
       </div>
+      {/* Mobile: the empty-state composer pinned to the bottom of the
+          screen at a fixed 10px -- a sibling of the SCROLLABLE div above
+          (not a descendant of it), not just of the transformed hero div.
+          Being `fixed` but still nested inside that div's `overflow-y-auto`
+          meant the focused textarea had a scrollable DOM ancestor for iOS
+          to seize on: on focus, Safari's native "scroll the focused input
+          into view" walked up to that div and yanked its scrollTop trying
+          to reveal an element scrolling could never actually move (a fixed
+          element doesn't shift when its ancestor scrolls) -- a hunt that
+          never converges, visibly dragging the hero content up and down
+          along with it (confirmed live: the heading/orb rode along with
+          the composer instead of staying still). Rendering this outside
+          the scrollable div entirely -- with body itself `overflow-hidden`
+          (app/layout.tsx) -- leaves the textarea with no scrollable
+          ancestor at all, so that heuristic has nothing left to grab.
+          `fixed` still anchors to the real viewport here (this parent has
+          no transform/filter of its own), so the translateY nudge below
+          for the keyboard is the same as before -- see useKeyboardCoverage.
+          Hidden while fadingOut so it doesn't linger after the populated
+          thread view has taken over. */}
+      {showEmpty ? (
+        <div
+          className={`fixed inset-x-0 bottom-[10px] z-20 px-4 transition-opacity duration-300 sm:hidden ${
+            fadingOut ? "opacity-0" : "opacity-100"
+          }`}
+          style={
+            keyboardCoverage > 0 ? { transform: `translateY(-${keyboardCoverage}px)` } : undefined
+          }
+        >
+          <Composer
+            value={taskText}
+            onChange={setTaskText}
+            onSubmit={() => submit(taskText, modelPreference)}
+            onCancel={cancelActive}
+            running={running}
+            cancelling={cancelling}
+            placeholder="Ask me anything you want to do today!"
+            modelPreference={modelPreference}
+            onModelChange={setModelPreference}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }
