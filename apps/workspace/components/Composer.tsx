@@ -1,114 +1,254 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+
 // Phase 9: "Auto - Best value" is the spec's own mockup default -- routes
 // each step to a different provider via app.agent.pipeline.AUTO_ROUTING
 // server-side. The explicit 3-way choice from Phase 7 remains for anyone
-// who wants one provider for the whole run.
-export const MODEL_OPTIONS: { value: string; label: string }[] = [
+// who wants one provider for the whole run. Icons are only set where a
+// real exported asset exists (Auto/Gemini have none -- not fabricated).
+export const MODEL_OPTIONS: { value: string; label: string; icon?: string }[] = [
   { value: "auto", label: "Auto - Best value" },
-  { value: "openai", label: "GPT-4o mini" },
-  { value: "anthropic", label: "Claude Haiku 4.5" },
+  { value: "openai", label: "GPT-4o mini", icon: "/icons/model-openai.png" },
+  { value: "anthropic", label: "Claude Haiku 4.5", icon: "/icons/model-anthropic.png" },
   { value: "gemini", label: "Gemini 3.6 Flash" },
 ];
 
-// The composer from the V0.3 Figma design ("Registered user" flow) --
-// used both in the empty state ("Ask me anything...") and pinned under a
-// populated thread ("Write message"), matching the same 20px-radius warm
-// card in both places, just with different placeholder copy.
+//: content viewport max-height before the composer switches from
+//: auto-grow to internal scroll (Figma's "scroll option appears" state) --
+//: distinct per composer size, since the fixed 36px action row + insets
+//: eat proportionally more of the smaller frame:
+//: primary (676px, empty state, 302px max frame): action row top 254px,
+//:   11px top inset -> 254 - 11 = 243px.
+//: secondary (900px, populated, 276px max frame): action row top 228px,
+//:   11px top inset -> 228 - 11 = 217px.
+const TEXTAREA_MAX_HEIGHT = { primary: 243, secondary: 217 } as const;
+
+function ModelDropdown({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  disabled: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const selected = MODEL_OPTIONS.find((m) => m.value === value) ?? MODEL_OPTIONS[0];
+
+  useEffect(() => {
+    function onClickOutside(e: MouseEvent) {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onClickOutside);
+    return () => document.removeEventListener("mousedown", onClickOutside);
+  }, []);
+
+  return (
+    <div ref={rootRef} className="relative flex items-center gap-2.5">
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        className={`flex items-center gap-1 text-[14px] hover:text-chat-ink disabled:opacity-70 ${
+          open ? "text-chat-ink" : "text-chat-label"
+        }`}
+      >
+        Choose model
+        <img
+          src="/icons/chevron-down.svg"
+          alt=""
+          className={`h-[5.5px] w-[9.5px] transition-transform ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-0.5 rounded-pill border border-chat-border-warm bg-surface py-[1px] pl-[7px] pr-[8px] text-[14px] text-chat-ink hover:bg-chat-warm active:bg-chat-border-warm disabled:opacity-70"
+      >
+        {selected.icon ? (
+          <img src={selected.icon} alt="" className="h-4 w-4 rounded-full" />
+        ) : null}
+        {selected.label}
+      </button>
+
+      {open ? (
+        <div className="absolute bottom-full right-0 mb-2 w-[225px] rounded-[15px] border border-chat-border-warm bg-chat-warm p-[5px]">
+          <ul className="flex flex-col gap-0.5">
+            {MODEL_OPTIONS.map((option) => (
+              <li key={option.value}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                  className="flex w-full items-center gap-1 rounded-[10px] bg-surface px-2 py-1.5 text-left text-[15px] text-chat-ink"
+                >
+                  {option.icon ? (
+                    <img src={option.icon} alt="" className="h-4 w-4 rounded-full" />
+                  ) : (
+                    <span className="w-4" />
+                  )}
+                  {option.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+// The composer from the V0.3 Figma design ("Registered user" flow, plus
+// the "Chat primary/secondary component states" specs) -- used both in
+// the empty state ("Ask me anything...") and pinned under a populated
+// thread ("Write message"). Figma's raw Default/Active states show the
+// model dropdown shifting position once the send button appears; that's
+// deliberately overridden here -- the dropdown always sits in the same
+// spot via a fixed-size reserved left slot, so it never jumps around as
+// the user types.
 export default function Composer({
   value,
   onChange,
   onSubmit,
   onCancel,
   running,
+  cancelling = false,
   placeholder,
   modelPreference,
   onModelChange,
+  variant = "primary",
 }: {
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
   onCancel: () => void;
   running: boolean;
+  //: True for the brief window between clicking Stop and the job actually
+  //: stopping (up to ~0.5s server-side) -- disables the button so that
+  //: gap doesn't invite a second click.
+  cancelling?: boolean;
   placeholder: string;
   modelPreference: string;
   onModelChange: (value: string) => void;
+  //: "primary" = the 676px empty-state composer; "secondary" = the 900px
+  //: composer pinned under a populated thread -- see TEXTAREA_MAX_HEIGHT.
+  variant?: "primary" | "secondary";
 }) {
-  const selectedModel = MODEL_OPTIONS.find((m) => m.value === modelPreference);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const hasContent = value.trim().length > 0;
+  const maxHeight = TEXTAREA_MAX_HEIGHT[variant];
+  //: Mobile only (see the sm: overrides below): while the keyboard's up,
+  //: every row but the text input itself hides, so the composer collapses
+  //: to just its own height instead of eating screen space the keyboard
+  //: already claimed. Enter-to-submit (onKeyDown below) still works with
+  //: the Send button hidden. Desktop has no keyboard to reclaim space
+  //: from, so it always shows the full composer regardless of focus.
+  const [isFocused, setIsFocused] = useState(false);
+  const secondaryRowClass = isFocused ? "hidden sm:flex" : "flex";
+  // The edge-fade mask (.chat-scroll) only makes sense once there's
+  // actually something to scroll -- applied unconditionally, it would
+  // fade the top/bottom of perfectly short, fully-visible text too.
+  const [isScrollable, setIsScrollable] = useState(false);
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+    setIsScrollable(el.scrollHeight > maxHeight);
+  }, [value, maxHeight]);
 
   return (
-    <div className="w-full rounded-[20px] bg-chat-warm px-[11px] py-[10px]">
-      <div className="flex items-start justify-between gap-3">
-        <textarea
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              if (!running) onSubmit();
-            }
-          }}
-          disabled={running}
-          placeholder={placeholder}
-          rows={1}
-          className="min-h-[26px] flex-1 resize-none bg-transparent text-[16px] font-medium text-chat-ink placeholder:text-chat-ink outline-none disabled:opacity-70"
-        />
-        <button
-          type="button"
-          disabled
-          title="Attaching files isn't available yet"
-          className="flex shrink-0 items-center gap-0.5 rounded-pill border border-chat-border-warm px-[6px] py-[1px] text-[14px] text-chat-label opacity-70"
-        >
-          <img src="/icons/attach.svg" alt="" className="h-[18px] w-[18px]" />
-          Attach files
-        </button>
+    <div className="w-full rounded-[20px] border border-chat-border-warm bg-chat-warm px-[11px] py-[10px]">
+      <div className="flex items-start gap-3.5">
+        <div className="relative flex-1">
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                if (!running) onSubmit();
+              }
+            }}
+            disabled={running}
+            placeholder={placeholder}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
+            rows={1}
+            // -mr-[5px]: pulls the textarea's own right edge 5px past the
+            // composer's 11px padding, so its native scrollbar (which always
+            // renders flush against the element's own box) lands ~6px from
+            // the composer's true right edge instead of 11px, matching the
+            // real Figma scroll-state frame (scrollbar ~7px from the outer
+            // edge, ~8px past where the text itself stops).
+            className="chat-scroll -mr-[5px] min-h-[26px] w-full resize-none overflow-y-auto bg-transparent pr-[8px] text-[16px] font-medium text-chat-ink placeholder:text-chat-ink outline-none disabled:opacity-70"
+            style={{ maxHeight }}
+          />
+          {/* Fades the top/bottom of the TEXT to transparent, not the
+              textarea itself -- a mask-image on the scrollable element
+              would mask its native scrollbar too (confirmed: it faded
+              out along with the text). These sit on top as a solid
+              --chat-warm -> transparent gradient, inset far enough right
+              (13px = 8px text padding + 5px scrollbar) to clear the
+              scrollbar column entirely so it stays fully visible. */}
+          {isScrollable ? (
+            <>
+              <div className="pointer-events-none absolute left-0 right-[13px] top-0 h-10 bg-gradient-to-b from-chat-warm via-chat-warm/70 to-transparent" />
+              <div className="pointer-events-none absolute left-0 right-[13px] bottom-0 h-10 bg-gradient-to-t from-chat-warm via-chat-warm/70 to-transparent" />
+            </>
+          ) : null}
+        </div>
+        {/* Figma: the attach-files control is only present in the empty
+            composer -- every Typing/Active/Expandable state has it hidden,
+            since a real message has no room to also show attaching. */}
+        {!hasContent ? (
+          <button
+            type="button"
+            disabled
+            title="Attaching files isn't available yet"
+            className={`shrink-0 items-center gap-0.5 rounded-pill border border-chat-border-warm px-[6px] py-[1px] text-[14px] text-chat-border-warm ${secondaryRowClass}`}
+          >
+            <img src="/icons/attach-disabled.svg" alt="" className="h-[18px] w-[18px]" />
+            Attach files
+          </button>
+        ) : null}
       </div>
 
-      <div className="mt-3.5 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <span className="text-[14px] text-chat-label">Choose model</span>
-          <div className="relative">
-            <select
-              value={modelPreference}
-              onChange={(e) => onModelChange(e.target.value)}
-              disabled={running}
-              className="appearance-none rounded-pill border border-chat-border-warm bg-transparent py-[1px] pl-[8px] pr-[24px] text-[14px] text-chat-ink outline-none disabled:opacity-70"
-            >
-              {MODEL_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <img
-              src="/icons/chevron-down.svg"
-              alt=""
-              className="pointer-events-none absolute right-[8px] top-1/2 h-[5.5px] w-[9.5px] -translate-y-1/2"
-            />
-          </div>
-        </div>
-
+      <div className={`mt-3.5 items-center justify-between gap-3 ${secondaryRowClass}`}>
+        {/* A fixed-size left slot, always reserved (empty when idle) so the
+            model dropdown on the right never shifts position depending on
+            whether Send/Stop is showing -- the dropdown must stay put
+            regardless of composer content. */}
         {running ? (
+          // Same slot/size as the Send button below (h-9 w-9) so nothing
+          // shifts when a run starts -- a filled circle with a solid
+          // square reads as "stop" without needing its own icon asset.
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-pill border border-chat-border-warm px-4 py-1.5 text-[14px] font-semibold text-chat-ink-soft"
+            disabled={cancelling}
+            title={cancelling ? "Stopping…" : "Stop"}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent hover:opacity-90 disabled:opacity-60"
           >
-            Stop
+            <span className="h-3.5 w-3.5 rounded-[4px] bg-white" />
+          </button>
+        ) : hasContent ? (
+          <button type="button" onClick={onSubmit} title="Send" className="shrink-0">
+            <img src="/icons/send-active.svg" alt="Send" className="h-9 w-9" />
           </button>
         ) : (
-          <button
-            type="button"
-            onClick={onSubmit}
-            disabled={!value.trim()}
-            className="flex items-center gap-1.5 rounded-pill bg-accent px-4 py-1.5 text-[14px] font-semibold text-white disabled:opacity-40"
-          >
-            {selectedModel?.value === "openai" ? (
-              <img src="/icons/model-openai.png" alt="" className="h-4 w-4 rounded-full" />
-            ) : null}
-            Send
-          </button>
+          <span aria-hidden className="h-9 w-9 shrink-0" />
         )}
+
+        <ModelDropdown value={modelPreference} onChange={onModelChange} disabled={running} />
       </div>
     </div>
   );
