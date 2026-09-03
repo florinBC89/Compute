@@ -52,12 +52,24 @@ export default function RecentConversations({
 
   return (
     <div className={`flex flex-col gap-0.5 ${capped ? "overflow-y-auto" : ""}`}>
+      {/* shrink-0 on every row below: `truncate` sets `overflow: hidden`,
+          and per the flexbox spec that turns a flex item's automatic
+          min-height (normally content-based, protecting it from being
+          squished) into 0 -- so once this list's combined natural height
+          exceeded the sidebar's available space, flex-shrink compressed
+          EVERY row below one line's worth of height instead of the
+          wrapper's own overflow-y-auto just scrolling. Each row's text
+          then rendered vertically clipped -- confirmed live: expanding a
+          long history made every name look visually garbled. shrink-0
+          makes rows refuse to shrink at all, so overflow-y-auto is what
+          actually handles a list too long to fit -- a real scrollbar,
+          not silent clipping. */}
       {visible.map((project) => (
         <a
           key={project.id}
           href={`/projects/${project.id}`}
           title={project.name}
-          className={`truncate rounded-[6px] px-3 py-[3px] text-[20px] sm:text-[14px] ${
+          className={`shrink-0 truncate rounded-[6px] px-3 py-[3px] text-[20px] sm:text-[14px] ${
             project.id === currentProjectId
               ? "bg-surface font-medium text-chat-ink"
               : "text-chat-ink-soft hover:bg-white/50"
@@ -70,7 +82,7 @@ export default function RecentConversations({
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="flex items-center gap-1.5 rounded-[6px] px-3 py-[3px] text-[14px] text-chat-label hover:bg-white/50"
+          className="flex shrink-0 items-center gap-1.5 rounded-[6px] px-3 py-[3px] text-[14px] text-chat-label hover:bg-white/50"
         >
           {expanded ? "Less" : "More"}
           <img
