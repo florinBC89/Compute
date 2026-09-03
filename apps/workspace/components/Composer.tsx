@@ -222,33 +222,41 @@ export default function Composer({
         ) : null}
       </div>
 
-      <div className={`mt-3.5 items-center justify-between gap-3 ${secondaryRowClass}`}>
+      <div className="flex items-center justify-between gap-3">
         {/* A fixed-size left slot, always reserved (empty when idle) so the
             model dropdown on the right never shifts position depending on
             whether Send/Stop is showing -- the dropdown must stay put
-            regardless of composer content. */}
-        {running ? (
-          // Same slot/size as the Send button below (h-9 w-9) so nothing
-          // shifts when a run starts -- a filled circle with a solid
-          // square reads as "stop" without needing its own icon asset.
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={cancelling}
-            title={cancelling ? "Stopping…" : "Stop"}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent hover:opacity-90 disabled:opacity-60"
-          >
-            <span className="h-3.5 w-3.5 rounded-[4px] bg-white" />
-          </button>
-        ) : hasContent ? (
-          <button type="button" onClick={onSubmit} title="Send" className="shrink-0">
-            <img src="/icons/send-active.svg" alt="Send" className="h-9 w-9" />
-          </button>
-        ) : (
-          <span aria-hidden className="h-9 w-9 shrink-0" />
-        )}
+            regardless of composer content. Its own visibility is
+            independent from the model dropdown's: once there's something
+            to send (or a run to stop), the Send/Stop button stays visible
+            even while focused on mobile -- only the truly-idle empty
+            spacer hides there, matching Attach-files' own condition. */}
+        <div className={`mt-3.5 ${running || hasContent ? "flex" : secondaryRowClass}`}>
+          {running ? (
+            // Same slot/size as the Send button below (h-9 w-9) so nothing
+            // shifts when a run starts -- a filled circle with a solid
+            // square reads as "stop" without needing its own icon asset.
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={cancelling}
+              title={cancelling ? "Stopping…" : "Stop"}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent hover:opacity-90 disabled:opacity-60"
+            >
+              <span className="h-3.5 w-3.5 rounded-[4px] bg-white" />
+            </button>
+          ) : hasContent ? (
+            <button type="button" onClick={onSubmit} title="Send" className="shrink-0">
+              <img src="/icons/send-active.svg" alt="Send" className="h-9 w-9" />
+            </button>
+          ) : (
+            <span aria-hidden className="h-9 w-9 shrink-0" />
+          )}
+        </div>
 
-        <ModelDropdown value={modelPreference} onChange={onModelChange} disabled={running} />
+        <div className={`mt-3.5 ${secondaryRowClass}`}>
+          <ModelDropdown value={modelPreference} onChange={onModelChange} disabled={running} />
+        </div>
       </div>
     </div>
   );
