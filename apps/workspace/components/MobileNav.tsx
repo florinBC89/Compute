@@ -57,7 +57,7 @@ export default function MobileNav({
 
       {open ? (
         <div className="fixed inset-0 z-50 flex flex-col bg-chat-warm sm:hidden">
-          <div className="flex items-center justify-between px-[26px] pb-6 pt-8">
+          <div className="relative flex items-center justify-between px-[26px] pb-6 pt-8">
             <img src="/icons/logo-mark.svg" alt="Accurate" className="h-8 w-auto" />
             <button
               type="button"
@@ -67,6 +67,13 @@ export default function MobileNav({
             >
               <img src="/icons/nav-close.svg" alt="" className="h-6 w-6 rotate-45" />
             </button>
+            {/* Same plain color-fade technique as the collapsed header
+                above -- from-chat-warm here, not from-page, to match this
+                panel's own background. A sibling of the scrollable list
+                below (not a cross-component overlay like the collapsed
+                header's version), so no z-index fight with anything else
+                unstyled here -- still explicit for consistency/safety. */}
+            <div className="pointer-events-none absolute inset-x-0 top-full z-10 h-16 bg-gradient-to-b from-chat-warm to-transparent" />
           </div>
 
           {/* Nav items + Recent now scroll together as one panel (Figma's
@@ -113,6 +120,16 @@ export default function MobileNav({
             ) : null}
           </div>
 
+          {/* Same fade, mirrored, at the panel's bottom edge -- pinned to
+              the whole overlay (not the scroll region specifically) for
+              the same reason as the avatar below: this position is
+              already the true bottom of the screen since nothing else
+              is fixed below the scrollable list, so it doesn't need to
+              track scroll offset itself, just sit where scrolled content
+              disappears. z-[5]: above the scrollable list (z-index:auto)
+              but below the avatar's own z-10, so the avatar itself never
+              gets faded. */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 z-[5] h-16 bg-gradient-to-b from-transparent to-chat-warm" />
           {/* Bare avatar (no name, no Support/Settings rows -- dropped
               from this later Figma update), pinned to the overlay's
               bottom-right corner regardless of how far the panel above
