@@ -91,8 +91,19 @@ export default function MobileNav({
             <div className="pointer-events-none absolute inset-x-0 top-full z-10 h-16 bg-gradient-to-b from-chat-warm to-transparent" />
           </div>
 
-          <div className="flex justify-center px-[42px] pb-6">
-            <ChatBuildToggle mode={mode} onChange={setMode} />
+          {/* sticky top-0: stays pinned above the scrollable nav+Recent
+              list below (Figma node 158:2762, sized up for mobile via
+              ChatBuildToggle's size="lg") -- not scroll-triggered here
+              since this row already never scrolls (it's a sibling before
+              flex-1 overflow-y-auto, not inside it), but sticky is the
+              honest, explicit way to say "this always stays put" instead
+              of it just happening to be true of the layout today.
+              z-20 + bg-chat-warm: the header row's own fade above (z-10,
+              h-16, extending past ITS box into this one) would otherwise
+              paint over this row and wash it out -- both together make
+              this reliably win regardless of stacking-context specifics. */}
+          <div className="sticky top-0 z-20 flex justify-center bg-chat-warm px-[42px] pb-6">
+            <ChatBuildToggle mode={mode} onChange={setMode} size="lg" />
           </div>
 
           {/* Nav items + Recent now scroll together as one panel (Figma's

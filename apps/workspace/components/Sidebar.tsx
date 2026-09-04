@@ -61,14 +61,21 @@ export function displayName(email: string): string {
 export function ChatBuildToggle({
   mode,
   onChange,
+  //: "lg" (Figma node 158:2762/158:2768, mobile's overlay menu) is a
+  //: genuinely bigger control -- 48px/20px text, not just a scaled-up
+  //: "sm" (the 36px/13px desktop version, node 155:2383/156:2575) -- so
+  //: this is a real size prop, not a responsive className.
+  size = "sm",
 }: {
   mode: WorkspaceMode;
   onChange: (mode: WorkspaceMode) => void;
+  size?: "sm" | "lg";
 }) {
   const options: { value: WorkspaceMode; label: string; activeClass: string }[] = [
     { value: "chat", label: "Chat", activeClass: "bg-chat-ink-strong" },
     { value: "build", label: "Build", activeClass: "bg-chat-accent-strong" },
   ];
+  const sizeClass = size === "lg" ? "h-10 px-5 text-[20px]" : "h-7 px-2.5 text-[13px]";
   return (
     <div className="inline-flex items-center gap-0.5 rounded-pill bg-white p-1">
       {options.map((option) => {
@@ -78,7 +85,7 @@ export function ChatBuildToggle({
             key={option.value}
             type="button"
             onClick={() => onChange(option.value)}
-            className={`flex h-7 items-center justify-center rounded-pill px-2.5 text-[13px] ${
+            className={`flex items-center justify-center rounded-pill ${sizeClass} ${
               active ? `${option.activeClass} font-medium text-white` : "font-normal text-chat-label"
             }`}
           >
