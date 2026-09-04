@@ -92,6 +92,11 @@ export default function ChatThread({
   const eventSourceRef = useRef<EventSource | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const contentColumnRef = useRef<HTMLDivElement | null>(null);
+  //: The page's one true scroll container (see the `overflow-y-auto` div
+  //: below) -- ref'd separately from contentColumnRef (that's the
+  //: non-scrolling inner column) so the keyboard-close effect further down
+  //: can reach its actual scrollTop/scrollHeight.
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   // Measured (not hardcoded) horizontal box for the gradient background,
   // so it centers on the actual content column -- wherever that column
   // really sits after the sidebar -- instead of a guessed sidebar-width
@@ -270,6 +275,45 @@ export default function ChatThread({
   //: see the composer wrapper below for why this only ever nudges it,
   //: never changes its actual position/layout mode.
   const keyboardCoverage = useKeyboardCoverage();
+  const prevKeyboardCoverageRef = useRef(0);
+
+  // While the keyboard is open, iOS's own "scroll the focused input above
+  // the keyboard" heuristic pushes THIS container's scrollTop into extra
+  // range it synthesizes for the purpose -- the container's real layout
+  // height never changes for the keyboard (only visualViewport does,
+  // which is the whole reason useKeyboardCoverage exists), so that extra
+  // range is phantom, and collapses back the instant the keyboard closes.
+  // Nothing else reconciles scrollTop against the container's real (now
+  // smaller) max afterward, leaving it parked past the real end of
+  // content -- rendering as blank space below the composer. This clamps
+  // (never forces) scrollTop back into bounds on that falling edge, so
+  // it's a no-op whenever the position is already valid -- including a
+  // user deliberately scrolled up rereading an earlier turn, whose
+  // in-bounds scrollTop this never touches. Deferred two frames so iOS's
+  // own post-dismiss reflow has settled scrollHeight/clientHeight first.
+  useEffect(() => {
+    const prevCoverage = prevKeyboardCoverageRef.current;
+    const closed = prevCoverage > 0 && keyboardCoverage === 0;
+    prevKeyboardCoverageRef.current = keyboardCoverage;
+    if (!closed) return;
+
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => {
+        const el = scrollContainerRef.current;
+        if (!el) return;
+        const maxScrollTop = el.scrollHeight - el.clientHeight;
+        if (el.scrollTop > maxScrollTop) {
+          el.scrollTop = Math.max(0, maxScrollTop);
+        }
+      });
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      cancelAnimationFrame(raf2);
+    };
+  }, [keyboardCoverage]);
+
   //: Shared by both empty-state composer instances (desktop + mobile)
   //: below -- kept as one constant so the two can't drift out of sync.
   const emptyComposerPlaceholder =
@@ -299,7 +343,10 @@ export default function ChatThread({
           <div className="pointer-events-none absolute inset-x-0 top-full h-20 bg-gradient-to-b from-page to-transparent" />
         </div>
       ) : null}
-      <div className="relative flex flex-1 flex-col overflow-y-auto overscroll-y-contain">
+      <div
+        ref={scrollContainerRef}
+        className="relative flex flex-1 flex-col overflow-y-auto overscroll-y-contain"
+      >
         {showEmpty ? (
           // "Full bleed" per the Figma reference: fixed to the viewport
           // (not the scrolling content column) and behind everything, so
