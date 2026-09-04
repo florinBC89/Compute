@@ -28,6 +28,7 @@ const config: Config = {
         "chat-warm": "var(--chat-warm)",
         "chat-ink": "var(--chat-ink)",
         "chat-ink-soft": "var(--chat-ink-soft)",
+        "chat-ink-strong": "var(--chat-ink-strong)",
         "chat-label": "var(--chat-label)",
         "chat-border-warm": "var(--chat-border-warm)",
         "chat-accent-strong": "var(--chat-accent-strong)",

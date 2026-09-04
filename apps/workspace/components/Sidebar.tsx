@@ -1,22 +1,41 @@
+"use client";
+
+import { useState } from "react";
 import AccountMenu from "@/components/AccountMenu";
 import MobileNav from "@/components/MobileNav";
 import RecentConversations from "@/components/RecentConversations";
 import type { ProjectSummary } from "@/lib/api";
 
-// The sidebar nav from the V0.3 Figma design ("Registered user" flow).
-// "New" (start a fresh conversation) and "Project" (Ethicals list, Agent OS
-// V0.4 slice -- see app/ethicals/page.tsx) are functional -- Reports/Overview/
-// Support have no backing page yet, so they render as static labels
-// rather than dead links. The account row opens a small menu (see
-// AccountMenu.tsx) whose only entry is sign out, since there's no other
-// account control in the design yet. Exported so MobileNav.tsx's slide-out
-// overlay (the mobile Figma variant of this same nav) uses the identical
-// list rather than a second copy that could drift.
+export type WorkspaceMode = "chat" | "build";
+
+// The sidebar nav from the V0.3 Figma design ("Registered user" flow),
+// extended with the Chat/Build toggle (Figma node 156:2574). "New Chat"
+// (start a fresh conversation) and "Project" (Ethicals list, Agent OS V0.4
+// slice -- see app/ethicals/page.tsx) are functional -- Reports/Overview/
+// Support have no backing page yet, so they render as static labels rather
+// than dead links. The account row opens a small menu (see AccountMenu.tsx)
+// whose only entry is sign out, since there's no other account control in
+// the design yet. Exported so MobileNav.tsx's slide-out overlay (the mobile
+// Figma variant of this same nav) uses the identical lists rather than a
+// second copy that could drift.
 export const NAV_ITEMS = [
-  { href: "/", label: "New", icon: "/icons/nav-new.svg" },
+  { href: "/", label: "New Chat", icon: "/icons/nav-new-chat.svg" },
   { href: "/ethicals", label: "Project", icon: "/icons/nav-chart.svg" },
   { href: null, label: "Reports", icon: "/icons/nav-reports.svg" },
   { href: null, label: "Overview", icon: "/icons/nav-chart.svg" },
+] as const;
+
+// Build mode (Figma node 155:2397): a single "New Project" entry, no
+// Project/Reports/Overview -- the Figma reference also mocks up a bigger
+// "agent orchestration" landing (parallel Backend/Frontend/Security agent
+// cards, a "Do It Later" control, a background-task counter) that has no
+// backend behind it yet, so it isn't built here. What IS real: "New
+// Project" opens the same chat composer as "New Chat", just flagged
+// ?mode=build so app/page.tsx shows build-flavored copy and defaults Lazy
+// mode on (see ChatThread.tsx) -- a genuine, working entry point, not a
+// mockup of one.
+export const BUILD_NAV_ITEMS = [
+  { href: "/?mode=build", label: "New Project", icon: "/icons/nav-new-project.svg" },
 ] as const;
 
 //: Exported alongside NAV_ITEMS -- MobileNav.tsx's account row needs the
@@ -32,10 +51,53 @@ export function displayName(email: string): string {
   return lettersOnly.charAt(0).toUpperCase() + lettersOnly.slice(1);
 }
 
+// Chat/Build segmented control (Figma node 155:2383 / 156:2575): each
+// option's ACTIVE fill is a different color by design -- Chat's is
+// --chat-ink-strong (near-black), Build's is --chat-accent-strong (the
+// app's orange) -- not the usual single-accent toggle. Exported so
+// MobileNav.tsx's overlay renders the identical control rather than a
+// second copy that could drift out of sync with this styling.
+export function ChatBuildToggle({
+  mode,
+  onChange,
+}: {
+  mode: WorkspaceMode;
+  onChange: (mode: WorkspaceMode) => void;
+}) {
+  const options: { value: WorkspaceMode; label: string; activeClass: string }[] = [
+    { value: "chat", label: "Chat", activeClass: "bg-chat-ink-strong" },
+    { value: "build", label: "Build", activeClass: "bg-chat-accent-strong" },
+  ];
+  return (
+    <div className="inline-flex items-center gap-0.5 rounded-pill bg-white p-1">
+      {options.map((option) => {
+        const active = option.value === mode;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            className={`flex h-7 items-center justify-center rounded-pill px-2.5 text-[13px] ${
+              active ? `${option.activeClass} font-medium text-white` : "font-normal text-chat-label"
+            }`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function Sidebar({
   email,
   projects,
   currentProjectId,
+  //: Which nav-item set + toggle position to render on first paint --
+  //: driven by the URL (?mode=build), not just a locally-remembered
+  //: default, so a hard reload or a link landing on ?mode=build shows the
+  //: right state instead of always resetting to Chat. See app/page.tsx.
+  initialMode = "chat",
 }: {
   email: string;
   //: V0.3 conversation history -- a conversation IS a Project (see
@@ -43,18 +105,27 @@ export default function Sidebar({
   //: ordered most-recent-first by GET /me.
   projects: ProjectSummary[];
   currentProjectId: string | null;
+  initialMode?: WorkspaceMode;
 }) {
   const name = displayName(email);
+  const [mode, setMode] = useState<WorkspaceMode>(initialMode);
+  const navItems = mode === "chat" ? NAV_ITEMS : BUILD_NAV_ITEMS;
 
   return (
     <>
-      <MobileNav email={email} projects={projects} currentProjectId={currentProjectId} />
+      <MobileNav
+        email={email}
+        projects={projects}
+        currentProjectId={currentProjectId}
+        initialMode={initialMode}
+      />
       <aside className="hidden h-full w-[179px] shrink-0 flex-col bg-chat-warm sm:flex">
-      <div className="px-5 pb-[54px] pt-8">
-        <img src="/logo.svg" alt="Accurate" className="h-[19px] w-auto" />
+      <div className="flex flex-col items-center gap-6 px-5 pb-6 pt-8">
+        <img src="/logo.svg" alt="Accurate" className="h-[19px] w-auto self-start" />
+        <ChatBuildToggle mode={mode} onChange={setMode} />
       </div>
       <nav className="flex flex-col gap-0.5 pl-[6px] pr-4">
-        {NAV_ITEMS.map((item) =>
+        {navItems.map((item) =>
           item.href ? (
             <a
               key={item.label}
@@ -76,6 +147,12 @@ export default function Sidebar({
         )}
       </nav>
 
+      {/* Recent stays the SAME list in both modes -- a conversation and a
+          "project" are still one underlying entity with no chat/build
+          distinction in the data yet (see BUILD_NAV_ITEMS' comment above),
+          so filtering this by mode would either show nothing real or
+          require inventing a fake split. Revisit once that distinction
+          actually exists. */}
       {projects.length > 0 ? (
         <div className="mt-6 flex min-h-0 flex-1 flex-col pl-[6px] pr-4">
           <span className="px-3 pb-1.5 text-[12px] font-semibold uppercase tracking-wide text-chat-label">

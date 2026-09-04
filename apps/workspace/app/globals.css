@@ -37,6 +37,10 @@
   --chat-label: #937365;
   --chat-border-warm: #ebd8d0;
   --chat-accent-strong: #ff5107;
+  /* Chat/Build mode toggle's own active-"Chat" fill (Figma node 155:2383)
+     -- distinct from --chat-ink, which is 16px body text color, not this
+     pill's fill. */
+  --chat-ink-strong: #171616;
 }
 
 @media (prefers-color-scheme: dark) {

@@ -53,6 +53,7 @@ export default function ChatThread({
   initialProjectId,
   initialTurns,
   initialTitle,
+  initialMode = "chat",
 }: {
   initialProjectId: string | null;
   initialTurns: JobDetail[];
@@ -60,6 +61,11 @@ export default function ChatThread({
   //: at the top of the content area. Null only for a brand-new, not-yet-
   //: started conversation (no title to show until the first message).
   initialTitle: string | null;
+  //: Build mode (Sidebar.tsx's "New Project" link, ?mode=build): the empty
+  //: state shows build-flavored copy instead of the generic one, and Lazy
+  //: mode (below) defaults on -- a real conversation exactly like Chat
+  //: mode's, just aimed at code from the first message.
+  initialMode?: "chat" | "build";
 }) {
   const [projectId, setProjectId] = useState(initialProjectId);
   const [turns, setTurns] = useState<JobDetail[]>(initialTurns);
@@ -69,7 +75,9 @@ export default function ChatThread({
   //: "Lazy" mode toggle next to the model picker -- set once per turn at
   //: submit() time, same lifecycle as modelPreference (see Composer.tsx's
   //: LazyToggle and apps/api's app.agent.chat.LAZY_MODE_SYSTEM_SUFFIX).
-  const [lazyMode, setLazyMode] = useState(false);
+  //: Defaults on when arriving via Build mode -- code is exactly what it's
+  //: for -- but stays a real per-turn toggle either way, not locked on.
+  const [lazyMode, setLazyMode] = useState(initialMode === "build");
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [activeEvents, setActiveEvents] = useState<JobEvent[]>([]);
   //: The in-flight assistant reply, accumulated from `delta` chunks on the
@@ -257,6 +265,10 @@ export default function ChatThread({
   //: see the composer wrapper below for why this only ever nudges it,
   //: never changes its actual position/layout mode.
   const keyboardCoverage = useKeyboardCoverage();
+  //: Shared by both empty-state composer instances (desktop + mobile)
+  //: below -- kept as one constant so the two can't drift out of sync.
+  const emptyComposerPlaceholder =
+    initialMode === "build" ? "What do you want to build today?" : "Ask me anything you want to do today!";
 
   return (
     <div className="relative flex h-full flex-1 flex-col overflow-hidden">
@@ -379,8 +391,17 @@ export default function ChatThread({
               className="h-[136.5px] w-[136.5px] shrink-0 rounded-full object-cover sm:h-[112.5px] sm:w-[112.5px]"
             />
             <h1 className="font-display max-w-[652px] text-[26px] font-medium text-chat-ink">
-              Create, build, research or work with{" "}
-              <span className="text-chat-accent-strong">less tokens</span>
+              {initialMode === "build" ? (
+                <>
+                  Ship, debug, or review code with{" "}
+                  <span className="text-chat-accent-strong">less tokens</span>
+                </>
+              ) : (
+                <>
+                  Create, build, research or work with{" "}
+                  <span className="text-chat-accent-strong">less tokens</span>
+                </>
+              )}
             </h1>
 
             {/* Desktop only now -- see the mobile-specific instance
@@ -401,7 +422,7 @@ export default function ChatThread({
                 onCancel={cancelActive}
                 running={running}
                 cancelling={cancelling}
-                placeholder="Ask me anything you want to do today!"
+                placeholder={emptyComposerPlaceholder}
                 modelPreference={modelPreference}
                 onModelChange={setModelPreference}
                 lazyMode={lazyMode}
@@ -556,7 +577,7 @@ export default function ChatThread({
             onCancel={cancelActive}
             running={running}
             cancelling={cancelling}
-            placeholder="Ask me anything you want to do today!"
+            placeholder={emptyComposerPlaceholder}
             modelPreference={modelPreference}
             onModelChange={setModelPreference}
             lazyMode={lazyMode}

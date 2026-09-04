@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 import AccountMenu from "@/components/AccountMenu";
-import { NAV_ITEMS, displayName } from "@/components/Sidebar";
+import {
+  BUILD_NAV_ITEMS,
+  ChatBuildToggle,
+  NAV_ITEMS,
+  displayName,
+  type WorkspaceMode,
+} from "@/components/Sidebar";
 import RecentConversations from "@/components/RecentConversations";
 import type { ProjectSummary } from "@/lib/api";
 
@@ -17,13 +23,17 @@ export default function MobileNav({
   email,
   projects,
   currentProjectId,
+  initialMode = "chat",
 }: {
   email: string;
   projects: ProjectSummary[];
   currentProjectId: string | null;
+  initialMode?: WorkspaceMode;
 }) {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<WorkspaceMode>(initialMode);
   const name = displayName(email);
+  const navItems = mode === "chat" ? NAV_ITEMS : BUILD_NAV_ITEMS;
 
   return (
     <>
@@ -76,6 +86,10 @@ export default function MobileNav({
             <div className="pointer-events-none absolute inset-x-0 top-full z-10 h-16 bg-gradient-to-b from-chat-warm to-transparent" />
           </div>
 
+          <div className="flex justify-center px-[42px] pb-6">
+            <ChatBuildToggle mode={mode} onChange={setMode} />
+          </div>
+
           {/* Nav items + Recent now scroll together as one panel (Figma's
               later mobile update) instead of Recent being a separate
               fixed-height, internally-capped section -- pb-24 leaves
@@ -83,7 +97,7 @@ export default function MobileNav({
               permanently hidden behind the floating avatar below. */}
           <div className="flex-1 overflow-y-auto pb-24">
             <nav className="flex flex-col gap-2.5 px-[42px]">
-              {NAV_ITEMS.map((item) =>
+              {navItems.map((item) =>
                 item.href ? (
                   <a
                     key={item.label}
