@@ -41,12 +41,18 @@ FALLBACK_TITLE_LENGTH = 40
 
 
 async def _resolve_or_create_project(
-    session: AsyncSession, workspace_id: uuid.UUID, project_id: str | None, task_text: str
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: str | None,
+    task_text: str,
+    project_kind: str,
 ) -> Project:
     """V0.3 conversation history: a conversation IS a Project. An explicit
     `project_id` attaches this turn to an existing conversation (ownership
-    verified); omitted, a brand-new one is created -- this is what makes
-    the workspace app's "New" and its per-conversation history both work
+    verified) -- `project_kind` is irrelevant here, since a Project's kind
+    is set once at creation and never changes. Omitted, a brand-new one is
+    created with the given kind -- this is what makes the workspace app's
+    "New Chat"/"New Project" and its per-conversation history both work
     without any project-management UI of their own.
     """
     if project_id:
@@ -68,6 +74,7 @@ async def _resolve_or_create_project(
         workspace_id=workspace_id,
         name=task_text[:FALLBACK_TITLE_LENGTH].strip(),
         slug=f"conv-{uuid.uuid4().hex[:12]}",
+        kind=project_kind,
     )
     session.add(project)
     await session.flush()
@@ -105,7 +112,7 @@ async def create_job(
 
     task_text = body.task_text.strip()
     project = await _resolve_or_create_project(
-        session, current_user.workspace_id, body.project_id, task_text
+        session, current_user.workspace_id, body.project_id, task_text, body.project_kind
     )
     settings = get_settings()
 

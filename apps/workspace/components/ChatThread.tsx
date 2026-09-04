@@ -178,6 +178,11 @@ export default function ChatThread({
         // which is exactly what tells the backend to start a new one.
         project_id: projectId ?? undefined,
         lazy_mode: lazyMode,
+        // Only actually matters the very first time (project_id above is
+        // still undefined) -- the backend ignores it once a project
+        // already exists, since a project's kind never changes after
+        // creation. See Sidebar.tsx's per-mode Recent filtering.
+        project_kind: initialMode,
       }),
     });
     if (!response.ok) {

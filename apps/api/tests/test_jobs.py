@@ -160,6 +160,45 @@ async def test_explicit_project_id_attaches_to_the_same_conversation(
 
 
 @pytest.mark.asyncio
+async def test_project_kind_defaults_to_chat_and_build_is_set_at_creation(
+    workspace_http_client, auth_headers
+):
+    """V0.3 Chat/Build toggle: a brand-new project's kind comes from
+    project_kind (defaulting to "chat" when omitted, matching every
+    pre-Build-mode conversation). Once created, a project's kind is fixed
+    -- a later turn attaching via project_id with a DIFFERENT project_kind
+    must not change it, since the sidebar's Recent list depends on kind
+    never drifting out from under an existing conversation.
+    """
+    chat_default = await workspace_http_client.post(
+        "/jobs", json={"task_text": "no kind specified"}, headers=auth_headers
+    )
+    build = await workspace_http_client.post(
+        "/jobs",
+        json={"task_text": "scaffold a project", "project_kind": "build"},
+        headers=auth_headers,
+    )
+    build_project_id = build.json()["project_id"]
+
+    # Same project, a second turn, with a DIFFERENT project_kind -- must be
+    # ignored since the project already exists.
+    await workspace_http_client.post(
+        "/jobs",
+        json={
+            "task_text": "second turn",
+            "project_id": build_project_id,
+            "project_kind": "chat",
+        },
+        headers=auth_headers,
+    )
+
+    me = await workspace_http_client.get("/me", headers=auth_headers)
+    projects = {p["id"]: p["kind"] for p in me.json()["projects"]}
+    assert projects[chat_default.json()["project_id"]] == "chat"
+    assert projects[build_project_id] == "build"
+
+
+@pytest.mark.asyncio
 async def test_project_id_from_another_workspace_is_not_found(
     workspace_http_client, keypair
 ):

@@ -23,14 +23,25 @@ export default async function ProjectPage({
   const me = await getMe();
   const turns = await getProjectJobs(params.projectId);
   const project = me.projects.find((p) => p.id === params.projectId);
+  //: Drives which sidebar tab/toggle position this conversation opens
+  //: into, so a build project reliably shows up (and stays highlighted)
+  //: under Build's own Recent list rather than defaulting to Chat's on
+  //: every visit -- see Sidebar.tsx's per-mode filtering.
+  const initialMode = project?.kind ?? "chat";
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden sm:flex-row">
-      <Sidebar email={me.email} projects={me.projects} currentProjectId={params.projectId} />
+      <Sidebar
+        email={me.email}
+        projects={me.projects}
+        currentProjectId={params.projectId}
+        initialMode={initialMode}
+      />
       <ChatThread
         initialProjectId={params.projectId}
         initialTurns={turns}
         initialTitle={project?.name ?? null}
+        initialMode={initialMode}
       />
     </div>
   );

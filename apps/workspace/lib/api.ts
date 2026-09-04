@@ -4,6 +4,9 @@ export interface ProjectSummary {
   id: string;
   name: string;
   slug: string;
+  //: Chat/Build sidebar tab this conversation belongs to (V0.3) -- set
+  //: once at creation, see components/Sidebar.tsx's per-mode filtering.
+  kind: "chat" | "build";
 }
 
 export interface Me {

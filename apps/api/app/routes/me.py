@@ -39,6 +39,7 @@ async def get_me(
         workspace_id=str(current_user.workspace_id),
         workspace_name=workspace.name if workspace else "",
         projects=[
-            ProjectSummary(id=str(p.id), name=p.name, slug=p.slug) for p in projects
+            ProjectSummary(id=str(p.id), name=p.name, slug=p.slug, kind=p.kind)
+            for p in projects
         ],
     )

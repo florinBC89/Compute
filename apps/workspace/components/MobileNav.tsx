@@ -34,6 +34,11 @@ export default function MobileNav({
   const [mode, setMode] = useState<WorkspaceMode>(initialMode);
   const name = displayName(email);
   const navItems = mode === "chat" ? NAV_ITEMS : BUILD_NAV_ITEMS;
+  //: See Sidebar.tsx's identical filter for why the current conversation
+  //: stays visible regardless of its own kind.
+  const visibleProjects = projects.filter(
+    (p) => p.kind === mode || p.id === currentProjectId
+  );
 
   return (
     <>
@@ -119,14 +124,14 @@ export default function MobileNav({
               )}
             </nav>
 
-            {projects.length > 0 ? (
+            {visibleProjects.length > 0 ? (
               <div className="mt-6 flex flex-col px-[22px]">
                 <span className="px-3 pb-1.5 text-[16px] text-chat-label">Recent</span>
                 {/* capped=false: no VISIBLE_COUNT/More cutoff here -- a
                     long history just runs on below the fold as part of
                     this same scroll, per the later Figma update. */}
                 <RecentConversations
-                  projects={projects}
+                  projects={visibleProjects}
                   currentProjectId={currentProjectId}
                   capped={false}
                 />

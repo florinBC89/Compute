@@ -20,6 +20,12 @@ class JobCreateRequest(BaseModel):
     #: "Lazy" mode: appends a code-minimalism ruleset to this turn's system
     #: prompt (see app.agent.chat.LAZY_MODE_SYSTEM_SUFFIX). Off by default.
     lazy_mode: bool = False
+    #: Chat/Build sidebar tab (V0.3) this conversation was started from --
+    #: only meaningful when project_id is omitted (a brand-new Project is
+    #: being created); ignored when attaching to an existing conversation,
+    #: since a Project's kind is set once at creation and never changes.
+    #: See app.models.project.Project.kind.
+    project_kind: Literal["chat", "build"] = "chat"
 
 
 class JobResponse(BaseModel):

@@ -31,9 +31,10 @@ export const NAV_ITEMS = [
 // cards, a "Do It Later" control, a background-task counter) that has no
 // backend behind it yet, so it isn't built here. What IS real: "New
 // Project" opens the same chat composer as "New Chat", just flagged
-// ?mode=build so app/page.tsx shows build-flavored copy and defaults Lazy
-// mode on (see ChatThread.tsx) -- a genuine, working entry point, not a
-// mockup of one.
+// ?mode=build so app/page.tsx shows build-flavored copy, defaults Lazy
+// mode on (see ChatThread.tsx), and tags the new conversation's
+// Project.kind "build" (see app.routes.jobs.create_job) so it's the one
+// that shows up under this tab's own Recent list, not Chat's.
 export const BUILD_NAV_ITEMS = [
   { href: "/?mode=build", label: "New Project", icon: "/icons/nav-new-project.svg" },
 ] as const;
@@ -110,6 +111,15 @@ export default function Sidebar({
   const name = displayName(email);
   const [mode, setMode] = useState<WorkspaceMode>(initialMode);
   const navItems = mode === "chat" ? NAV_ITEMS : BUILD_NAV_ITEMS;
+  //: Chat's Recent shows chat conversations, Build's shows build projects
+  //: -- the whole point of the toggle (see BUILD_NAV_ITEMS' comment). The
+  //: CURRENT conversation stays visible even if its own kind doesn't match
+  //: -- e.g. a fresh visit here before the toggle's initialMode syncs to
+  //: it -- so viewing an open conversation never makes it vanish from its
+  //: own sidebar.
+  const visibleProjects = projects.filter(
+    (p) => p.kind === mode || p.id === currentProjectId
+  );
 
   return (
     <>
@@ -147,18 +157,12 @@ export default function Sidebar({
         )}
       </nav>
 
-      {/* Recent stays the SAME list in both modes -- a conversation and a
-          "project" are still one underlying entity with no chat/build
-          distinction in the data yet (see BUILD_NAV_ITEMS' comment above),
-          so filtering this by mode would either show nothing real or
-          require inventing a fake split. Revisit once that distinction
-          actually exists. */}
-      {projects.length > 0 ? (
+      {visibleProjects.length > 0 ? (
         <div className="mt-6 flex min-h-0 flex-1 flex-col pl-[6px] pr-4">
           <span className="px-3 pb-1.5 text-[12px] font-semibold uppercase tracking-wide text-chat-label">
             Recent
           </span>
-          <RecentConversations projects={projects} currentProjectId={currentProjectId} />
+          <RecentConversations projects={visibleProjects} currentProjectId={currentProjectId} />
         </div>
       ) : (
         <div className="flex-1" />
