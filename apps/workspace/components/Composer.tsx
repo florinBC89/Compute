@@ -51,7 +51,7 @@ function ModelDropdown({
         type="button"
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-1 text-[14px] hover:text-chat-ink disabled:opacity-70 ${
+        className={`flex items-center gap-1 whitespace-nowrap text-[14px] hover:text-chat-ink disabled:opacity-70 ${
           open ? "text-chat-ink" : "text-chat-label"
         }`}
       >
@@ -67,7 +67,7 @@ function ModelDropdown({
         type="button"
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-0.5 rounded-pill border border-chat-border-warm bg-surface py-[1px] pl-[7px] pr-[8px] text-[14px] text-chat-ink hover:bg-chat-warm active:bg-chat-border-warm disabled:opacity-70"
+        className="flex items-center gap-0.5 whitespace-nowrap rounded-pill border border-chat-border-warm bg-surface py-[1px] pl-[7px] pr-[8px] text-[14px] text-chat-ink hover:bg-chat-warm active:bg-chat-border-warm disabled:opacity-70"
       >
         {selected.icon ? (
           <img src={selected.icon} alt="" className="h-4 w-4 rounded-full" />
@@ -262,7 +262,17 @@ export default function Composer({
         ) : null}
       </div>
 
-      <div className="flex items-center justify-between gap-3">
+      {/* flex-wrap: adding the Lazy toggle left this row too wide to fit
+          Send/spacer + Lazy + "Choose model" + the current-model pill on
+          one line at narrow mobile widths -- their text was wrapping
+          mid-word inside each button instead ("Choose" / "model") rather
+          than the row itself wrapping. ml-auto on the right-hand group
+          (below) replaces justify-between here so that group still lands
+          flush right whether it's sharing the first line or, once there's
+          no room, dropped to a full-width line of its own -- same visual
+          result as before on desktop/wide mobile, where it never needs to
+          wrap at all. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         {/* A fixed-size left slot, always reserved (empty when idle) so the
             model dropdown on the right never shifts position depending on
             whether Send/Stop is showing -- the dropdown must stay put
@@ -294,7 +304,7 @@ export default function Composer({
           )}
         </div>
 
-        <div className={`mt-3.5 flex items-center gap-2 ${secondaryRowClass}`}>
+        <div className={`mt-3.5 ml-auto flex items-center gap-2 ${secondaryRowClass}`}>
           <LazyToggle
             active={lazyMode}
             onToggle={() => onLazyModeChange(!lazyMode)}
