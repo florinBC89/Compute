@@ -13,7 +13,7 @@ from __future__ import annotations
 import datetime as _dt
 import uuid
 
-from sqlalchemy import CheckConstraint, DateTime, Numeric, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Numeric, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, created_at_column, uuid_fk, uuid_pk
@@ -43,6 +43,11 @@ class Job(Base):
     #: any job that doesn't finish successfully.
     answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_preference: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: "Lazy" mode (V0.3 chat): appends a code-minimalism ruleset to this
+    #: turn's system prompt -- see app.agent.chat.LAZY_MODE_SYSTEM_SUFFIX.
+    #: Set once at job creation, same lifecycle as model_preference (a
+    #: Regenerate reuses the same job row, so it reuses this too).
+    lazy_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[str] = mapped_column(
         Text, nullable=False, default="QUEUED", server_default="QUEUED"
     )

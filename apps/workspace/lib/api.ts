@@ -108,6 +108,13 @@ export interface JobDetail {
   cost_cap_usd: number;
   run_id: string | null;
   project_id: string;
+  //: The conversation's current title (V0.3) -- a fallback until the
+  //: PROJECT_TITLED SSE event (see ChatThread.tsx) replaces it live.
+  project_name: string;
+  //: "Lazy" mode: this turn's system prompt was appended with a
+  //: code-minimalism ruleset (apps/api's app.agent.chat.LAZY_MODE_SYSTEM_SUFFIX).
+  //: Set once at creation, same lifecycle as model_preference.
+  lazy_mode: boolean;
 }
 
 export interface JobEvent {
@@ -115,6 +122,49 @@ export interface JobEvent {
   event_type: string;
   payload: Record<string, unknown>;
   created_at: string;
+}
+
+// GET /v1/jobs/{job_id}/stream (V0.3 chat streaming): each `data:` line is
+// one of these, discriminated on `type`. Replaces the old JobEvent-based
+// SSE (/jobs/{id}/events) for chat turns -- `delta` chunks accumulate into
+// the streamed answer, `title` mirrors the old PROJECT_TITLED event, and
+// `done` carries the final JobDetail directly (success or failure), so no
+// extra GET /jobs/{id} fetch is needed once it arrives.
+export type ChatStreamEnvelope =
+  | { type: "delta"; text: string }
+  | { type: "title"; name: string }
+  | { type: "done"; job: JobDetail };
+
+// Ethical (Agent OS V0.4 slice, "give Ethical a name and a face"): a persistent
+// named identity linked to one Project, whose "Work" is that Project's
+// existing Jobs (see apps/api/app/services/ethicals.py) -- no separate
+// pipeline or storage of its own yet.
+export type WorkReuseLabel = "reused" | "partially_reused" | "fresh";
+
+export interface EthicalSummary {
+  id: string;
+  name: string;
+  goal: string | null;
+  status: "active" | "archived";
+  project_id: string;
+  project_name: string;
+  created_at: string;
+}
+
+export interface EthicalWorkItem {
+  job_id: string;
+  task_text: string;
+  status: JobStatus;
+  //: null for a job with no run_id yet (queued/running) -- nothing to
+  //: classify as reused or fresh until a run has actually executed.
+  reuse_label: WorkReuseLabel | null;
+  cost_usd: number;
+  saved_usd: number;
+  created_at: string;
+}
+
+export interface EthicalDetail extends EthicalSummary {
+  work: EthicalWorkItem[];
 }
 
 export const API_URL = process.env.COMPUTELAYER_API_URL ?? "http://localhost:8000/v1";
@@ -184,6 +234,23 @@ export async function getRunGraph(runId: string): Promise<RunGraph> {
   const response = await authorizedFetch(`/workspace/runs/${runId}/graph`);
   if (!response.ok) {
     throw new Error(`GET run graph failed: ${response.status}`);
+  }
+  return response.json();
+}
+
+export async function getEthicals(): Promise<EthicalSummary[]> {
+  const response = await authorizedFetch("/ethicals");
+  if (!response.ok) {
+    throw new Error(`GET ethicals failed: ${response.status}`);
+  }
+  const data = await response.json();
+  return data.ethicals;
+}
+
+export async function getEthical(ethicalId: string): Promise<EthicalDetail> {
+  const response = await authorizedFetch(`/ethicals/${ethicalId}`);
+  if (!response.ok) {
+    throw new Error(`GET ethical failed: ${response.status}`);
   }
   return response.json();
 }

@@ -104,6 +104,42 @@ function ModelDropdown({
   );
 }
 
+// "Lazy" mode: appends a code-minimalism ruleset to this turn's system
+// prompt (apps/api's app.agent.chat.LAZY_MODE_SYSTEM_SUFFIX) -- off by
+// default, toggled per-turn right next to the model picker since it's the
+// same kind of per-message choice. --accent-soft/--accent-track exist in
+// app/globals.css specifically for a lit-up toggle state like this one but
+// had no component using them yet.
+function LazyToggle({
+  active,
+  onToggle,
+  disabled,
+}: {
+  active: boolean;
+  onToggle: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      disabled={disabled}
+      title={
+        active
+          ? "Lazy mode is on -- code answers favor the smallest correct change"
+          : "Lazy mode -- ask for lean, minimal code"
+      }
+      className={`flex items-center gap-1 rounded-pill border px-[7px] py-[1px] text-[14px] disabled:opacity-70 ${
+        active
+          ? "border-accent bg-accent-soft text-accent"
+          : "border-chat-border-warm text-chat-label hover:bg-chat-warm hover:text-chat-ink"
+      }`}
+    >
+      Lazy
+    </button>
+  );
+}
+
 // The composer from the V0.3 Figma design ("Registered user" flow, plus
 // the "Chat primary/secondary component states" specs) -- used both in
 // the empty state ("Ask me anything...") and pinned under a populated
@@ -122,6 +158,8 @@ export default function Composer({
   placeholder,
   modelPreference,
   onModelChange,
+  lazyMode,
+  onLazyModeChange,
   variant = "primary",
 }: {
   value: string;
@@ -136,6 +174,8 @@ export default function Composer({
   placeholder: string;
   modelPreference: string;
   onModelChange: (value: string) => void;
+  lazyMode: boolean;
+  onLazyModeChange: (value: boolean) => void;
   //: "primary" = the 676px empty-state composer; "secondary" = the 900px
   //: composer pinned under a populated thread -- see TEXTAREA_MAX_HEIGHT.
   variant?: "primary" | "secondary";
@@ -254,7 +294,12 @@ export default function Composer({
           )}
         </div>
 
-        <div className={`mt-3.5 ${secondaryRowClass}`}>
+        <div className={`mt-3.5 flex items-center gap-2 ${secondaryRowClass}`}>
+          <LazyToggle
+            active={lazyMode}
+            onToggle={() => onLazyModeChange(!lazyMode)}
+            disabled={running}
+          />
           <ModelDropdown value={modelPreference} onChange={onModelChange} disabled={running} />
         </div>
       </div>

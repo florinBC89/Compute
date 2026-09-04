@@ -66,6 +66,10 @@ export default function ChatThread({
   const [title, setTitle] = useState(initialTitle);
   const [taskText, setTaskText] = useState("");
   const [modelPreference, setModelPreference] = useState(MODEL_OPTIONS[0].value);
+  //: "Lazy" mode toggle next to the model picker -- set once per turn at
+  //: submit() time, same lifecycle as modelPreference (see Composer.tsx's
+  //: LazyToggle and apps/api's app.agent.chat.LAZY_MODE_SYSTEM_SUFFIX).
+  const [lazyMode, setLazyMode] = useState(false);
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [activeEvents, setActiveEvents] = useState<JobEvent[]>([]);
   //: The in-flight assistant reply, accumulated from `delta` chunks on the
@@ -165,6 +169,7 @@ export default function ChatThread({
         // once one exists; omitted (undefined) on the very first message,
         // which is exactly what tells the backend to start a new one.
         project_id: projectId ?? undefined,
+        lazy_mode: lazyMode,
       }),
     });
     if (!response.ok) {
@@ -399,6 +404,8 @@ export default function ChatThread({
                 placeholder="Ask me anything you want to do today!"
                 modelPreference={modelPreference}
                 onModelChange={setModelPreference}
+                lazyMode={lazyMode}
+                onLazyModeChange={setLazyMode}
               />
             </div>
 
@@ -502,6 +509,8 @@ export default function ChatThread({
                 placeholder="Write message"
                 modelPreference={modelPreference}
                 onModelChange={setModelPreference}
+                lazyMode={lazyMode}
+                onLazyModeChange={setLazyMode}
                 variant="secondary"
               />
             </div>
@@ -550,6 +559,8 @@ export default function ChatThread({
             placeholder="Ask me anything you want to do today!"
             modelPreference={modelPreference}
             onModelChange={setModelPreference}
+            lazyMode={lazyMode}
+            onLazyModeChange={setLazyMode}
           />
         </div>
       ) : null}

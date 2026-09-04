@@ -48,6 +48,37 @@ CHAT_SYSTEM = (
     "were just given, and don't pad your answer with unnecessary caveats "
     "or filler."
 )
+
+#: "Lazy" mode (job.lazy_mode, toggled per-turn next to the model picker):
+#: appended to CHAT_SYSTEM when on. Adapted from the ponytail Claude Code
+#: plugin's ruleset (github.com/DietrichGebert/ponytail, MIT) -- trimmed of
+#: its CLI-specific bits (mode-switch slash commands, cross-session
+#: persistence language), which don't apply here since the toggle itself
+#: already is the on/off control. Deliberately scoped to code, not prose:
+#: it governs what gets built, not how the rest of the answer reads.
+LAZY_MODE_SYSTEM_SUFFIX = (
+    "Lazy mode is on: when this request calls for writing code, be a lazy "
+    "senior developer. Lazy means efficient, not careless -- the best code "
+    "is the code you never wrote.\n\n"
+    "Before writing any code, stop at the first rung that holds (this runs "
+    "after you understand the problem, not instead of it -- read what the "
+    "request actually needs before picking a rung):\n"
+    "1. Does this need to be built at all?\n"
+    "2. Does it already exist in this conversation or codebase? Reuse it.\n"
+    "3. Does the standard library do this? Use it.\n"
+    "4. Does a native platform feature cover it? Use it.\n"
+    "5. Does an already-installed dependency solve it? Use it.\n"
+    "6. Can this be one line? Make it one line.\n"
+    "7. Only then: write the minimum code that works.\n\n"
+    "No abstractions that weren't requested. No boilerplate nobody asked "
+    "for. Deletion over addition. Boring over clever. Fewest files "
+    "possible. Code first, then at most three short lines: what was "
+    "skipped and when to add it -- if the explanation is longer than the "
+    "code, delete the explanation.\n\n"
+    "Never simplify away: input validation at trust boundaries, error "
+    "handling that prevents data loss, security measures, or "
+    "accessibility basics."
+)
 CHAT_MAX_TOKENS = 1024
 
 #: Mirrors app.agent.pipeline.TITLE_TASK_TIMEOUT_SECONDS exactly (see that
@@ -145,11 +176,14 @@ async def run_chat_turn(
                 history = await _load_history(session_factory, job)
                 provider_module = _resolve_provider_module(job.model_preference)
                 model = provider_module.MODEL
+                system = CHAT_SYSTEM + (
+                    "\n\n" + LAZY_MODE_SYSTEM_SUFFIX if job.lazy_mode else ""
+                )
 
                 async def _stream_and_record() -> str:
                     try:
                         return await provider_module.stream_complete(
-                            system=CHAT_SYSTEM,
+                            system=system,
                             history=history,
                             message=job.task_text,
                             max_tokens=CHAT_MAX_TOKENS,
@@ -169,7 +203,18 @@ async def run_chat_turn(
                     session_factory,
                     job.id,
                     name="chat_turn",
-                    inputs={"history": history, "message": job.task_text},
+                    # lazy_mode is in inputs (not just system, above) on
+                    # purpose: it changes what the provider is actually
+                    # asked to produce, so it must change the fingerprint
+                    # too -- otherwise an identical message sent once with
+                    # Lazy off and once with Lazy on would collide on the
+                    # same cl.compute.run() cache entry and silently return
+                    # the other mode's answer on the second send.
+                    inputs={
+                        "history": history,
+                        "message": job.task_text,
+                        "lazy_mode": job.lazy_mode,
+                    },
                     fn=_stream_and_record,
                     model=model,
                     artifact_type=None,

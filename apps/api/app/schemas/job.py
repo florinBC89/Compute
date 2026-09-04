@@ -17,6 +17,9 @@ class JobCreateRequest(BaseModel):
     #: conversation (Project). Omitted/None -> a brand-new conversation is
     #: created for it. See app.routes.jobs.create_job.
     project_id: str | None = None
+    #: "Lazy" mode: appends a code-minimalism ruleset to this turn's system
+    #: prompt (see app.agent.chat.LAZY_MODE_SYSTEM_SUFFIX). Off by default.
+    lazy_mode: bool = False
 
 
 class JobResponse(BaseModel):
@@ -36,6 +39,7 @@ class JobResponse(BaseModel):
     #: task_text) until the async AI-generated title replaces it; see the
     #: PROJECT_TITLED job_event for the live update.
     project_name: str
+    lazy_mode: bool = False
 
 
 class JobList(BaseModel):

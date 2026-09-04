@@ -412,6 +412,103 @@ async def test_regenerating_identical_message_is_a_cache_hit(
 
 
 @pytest.mark.asyncio
+async def test_lazy_mode_is_part_of_the_cache_fingerprint(
+    workspace_http_client,
+    auth_headers,
+    engine,
+    chat_transport_factory,
+    monkeypatch,
+):
+    """Regression guard for app.agent.chat's `inputs` fix: lazy_mode changes
+    what the provider is actually asked to produce, so it must be part of
+    cl.compute.run()'s fingerprint, not just the `system` string handed to
+    the provider -- otherwise the exact same job, re-run with only
+    lazy_mode flipped (same task_text, same -- empty -- history), would
+    collide on the same cache entry test_regenerating_identical_message_is_a_cache_hit
+    proves exists for a genuine regenerate, and silently return the OTHER
+    mode's cached answer instead of a fresh call.
+    """
+    from app.agent import chat
+    from app.agent.chat import LAZY_MODE_SYSTEM_SUFFIX
+    from app.agent.providers import openai as openai_provider
+    from app.models import Job
+    from app.routes import jobs as jobs_route
+    from computelayer.context import LLMCall, record_llm_call
+
+    seen_systems: list[str] = []
+
+    async def _fake_stream_complete(
+        *, system: str, history: list[dict[str, str]], message: str, max_tokens: int = 400, on_delta
+    ) -> str:
+        seen_systems.append(system)
+        await on_delta("ok")
+        record_llm_call(
+            LLMCall(
+                model=openai_provider.MODEL,
+                provider="openai",
+                input_tokens=10,
+                output_tokens=5,
+                cost_usd=0.0001,
+                latency_ms=5,
+            )
+        )
+        return "ok"
+
+    async def _fake_complete(*, system: str, prompt: str, max_tokens: int = 400) -> str:
+        record_llm_call(
+            LLMCall(
+                model=openai_provider.MODEL,
+                provider="openai",
+                input_tokens=10,
+                output_tokens=5,
+                cost_usd=0.0001,
+                latency_ms=5,
+            )
+        )
+        return "Fake Title"
+
+    monkeypatch.setattr(openai_provider, "stream_complete", _fake_stream_complete)
+    monkeypatch.setattr(openai_provider, "complete", _fake_complete)
+
+    created = await workspace_http_client.post(
+        "/jobs", json={"task_text": "write a date picker"}, headers=auth_headers
+    )
+    job_id = uuid.UUID(created.json()["id"])
+
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
+        claimed = await jobs_route._claim_chat_turn(session, job_id)
+
+    await chat.run_chat_turn(
+        claimed,
+        session_factory,
+        delta_queue=asyncio.Queue(),
+        transport_factory=chat_transport_factory,
+    )
+    assert len(seen_systems) == 1
+
+    async with session_factory() as session:
+        job = await session.get(Job, job_id)
+        job.status = "RUNNING"
+        job.lazy_mode = True  # the only thing that changed
+        await session.commit()
+        rerun_job = job
+
+    await chat.run_chat_turn(
+        rerun_job,
+        session_factory,
+        delta_queue=asyncio.Queue(),
+        transport_factory=chat_transport_factory,
+    )
+
+    # A genuine second provider call, not a cache hit -- proves lazy_mode is
+    # part of the fingerprint, not just the system prompt text.
+    assert len(seen_systems) == 2
+    assert LAZY_MODE_SYSTEM_SUFFIX not in seen_systems[0]
+    assert LAZY_MODE_SYSTEM_SUFFIX in seen_systems[1]
+
+
+@pytest.mark.asyncio
 async def test_failed_turn_excluded_from_chat_history(
     workspace_http_client,
     auth_headers,

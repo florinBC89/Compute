@@ -116,6 +116,7 @@ async def create_job(
         user_id=current_user.user_id,
         task_text=task_text,
         model_preference=body.model_preference,
+        lazy_mode=body.lazy_mode,
         cost_cap_usd=settings.default_job_cost_cap_usd,
     )
     session.add(job)

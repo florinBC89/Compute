@@ -40,6 +40,7 @@ def to_job_response(job: Job, project_name: str) -> JobResponse:
         run_id=str(job.run_id) if job.run_id else None,
         project_id=str(job.project_id),
         project_name=project_name,
+        lazy_mode=job.lazy_mode,
     )
 
 
